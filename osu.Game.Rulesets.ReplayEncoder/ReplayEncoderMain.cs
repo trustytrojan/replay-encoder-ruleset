@@ -10,9 +10,9 @@ namespace osu.Game.Rulesets.ReplayEncoder;
 
 // Because I'm not writing an actual ruleset, all of ReplayEncoder-specific code will be
 // outside of the ruleset template classes. Consider this to be the "main" or "entrypoint" class.
-public class ReplayEncoder
+public static class ReplayEncoderMain
 {
-	static OsuGame game;
+	public static OsuGame Game { get; private set; }
 	static bool injected = false;
 
 	public static void RunHarmonyPatches()
@@ -31,7 +31,7 @@ public class ReplayEncoder
 		// Get the ScalingContainer that contains the original OsuScreenStack.
 		var gameScreenContainerProperty = AccessTools.DeclaredProperty(typeof(OsuGame), "ScreenContainer")
 			?? throw new InvalidOperationException("The declared property OsuGame.ScreenContainer doesn't exist");
-		if (gameScreenContainerProperty.GetValue(game) is not ScalingContainer gameScreenContainer)
+		if (gameScreenContainerProperty.GetValue(Game) is not ScalingContainer gameScreenContainer)
 			throw new InvalidOperationException("ScreenContainer is null");
 
 		// Set the OsuGame.ScreenStack property to a new CapturableOsuScreenStack.
@@ -39,8 +39,8 @@ public class ReplayEncoder
 		var gameScreenStackProperty = AccessTools.DeclaredProperty(typeof(OsuGame), "ScreenStack")
 			?? throw new InvalidOperationException("The declared property OsuGame.ScreenStack doesn't exist");
 		var newScreenStack = new CapturableOsuScreenStack { RelativeSizeAxes = Axes.Both };
-		gameScreenStackProperty.SetValue(game, newScreenStack);
-		Debug.Assert(game.ScreenStack == newScreenStack);
+		gameScreenStackProperty.SetValue(Game, newScreenStack);
+		Debug.Assert(Game.ScreenStack == newScreenStack);
 		// Now we can simply use `game.ScreenStack` to access our CapturableOsuScreenStack.
 
 		Console.WriteLine("Replaced OsuGame.ScreenStack with a CapturableOsuScreenStack. Now injecting it into OsuGame.ScreenContainer...");
@@ -56,7 +56,7 @@ public class ReplayEncoder
 
 		// According to 2026.408.0 source,
 		// The 2nd child is the screen stack we need to replace.
-		children[1] = game.ScreenStack;
+		children[1] = Game.ScreenStack;
 
 		Console.WriteLine("children after modification:");
 		foreach (var child in children)
@@ -81,7 +81,7 @@ public class ReplayEncoder
 	{
 		static void Prefix(OsuGame __instance)
 		{
-			game ??= __instance;
+			Game ??= __instance;
 		}
 	}
 
@@ -105,7 +105,7 @@ public class ReplayEncoder
 				return;
 
 			// Console.WriteLine("Detected the right caller!");
-			if (game == null)
+			if (Game == null)
 				throw new InvalidOperationException("game is null");
 
 			InjectCapturableOsuScreenStack();

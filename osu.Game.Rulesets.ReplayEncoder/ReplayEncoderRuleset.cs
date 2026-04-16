@@ -1,7 +1,4 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
-// See the LICENCE file in the repository root for full licence text.
-
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -97,7 +94,7 @@ namespace osu.Game.Rulesets.ReplayEncoder
         // https://github.com/ppy/osu/blob/8c6818e275d0bd369506d86c68c57df7af7163bd/osu.Game/Rulesets/RealmRulesetStore.cs#L39
         public ReplayEncoderRuleset()
         {
-            ReplayEncoder.RunHarmonyPatches();
+            ReplayEncoderMain.RunHarmonyPatches();
         }
     }
 }
