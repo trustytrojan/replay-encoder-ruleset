@@ -3,14 +3,14 @@
 
 using System.Collections.Generic;
 using osu.Game.Beatmaps;
-using osu.Game.Rulesets.EmptyFreeform.Replays;
+using osu.Game.Rulesets.ReplayEncoder.Replays;
 using osu.Game.Rulesets.Mods;
 
-namespace osu.Game.Rulesets.EmptyFreeform.Mods
+namespace osu.Game.Rulesets.ReplayEncoder.Mods
 {
-    public class EmptyFreeformModAutoplay : ModAutoplay
+    public class ReplayEncoderModAutoplay : ModAutoplay
     {
         public override ModReplayData CreateReplayData(IBeatmap beatmap, IReadOnlyList<Mod> mods)
-            => new ModReplayData(new EmptyFreeformAutoGenerator(beatmap).Generate(), new ModCreatedUser { Username = "sample" });
+            => new ModReplayData(new ReplayEncoderAutoGenerator(beatmap).Generate(), new ModCreatedUser { Username = "sample" });
     }
 }

@@ -21,9 +21,9 @@ using osu.Game.Beatmaps;
 using osu.Game.Graphics;
 using osu.Game.Graphics.Containers;
 using osu.Game.Rulesets.Difficulty;
-using osu.Game.Rulesets.EmptyFreeform.Beatmaps;
-using osu.Game.Rulesets.EmptyFreeform.Mods;
-using osu.Game.Rulesets.EmptyFreeform.UI;
+using osu.Game.Rulesets.ReplayEncoder.Beatmaps;
+using osu.Game.Rulesets.ReplayEncoder.Mods;
+using osu.Game.Rulesets.ReplayEncoder.UI;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.UI;
 using osu.Game.Screens;
@@ -31,39 +31,39 @@ using osu.Game.Screens.Footer;
 using osuTK;
 using osuTK.Graphics;
 
-namespace osu.Game.Rulesets.EmptyFreeform
+namespace osu.Game.Rulesets.ReplayEncoder
 {
-    public partial class EmptyFreeformRuleset : Ruleset
+    public partial class ReplayEncoderRuleset : Ruleset
     {
-        public override string Description => "a very emptyfreeformruleset ruleset";
+        public override string Description => "Replay Encoder";
 
         public override DrawableRuleset CreateDrawableRulesetWith(IBeatmap beatmap, IReadOnlyList<Mod> mods = null) =>
-            new DrawableEmptyFreeformRuleset(this, beatmap, mods);
+            new DrawableReplayEncoderRuleset(this, beatmap, mods);
 
         public override IBeatmapConverter CreateBeatmapConverter(IBeatmap beatmap) =>
-            new EmptyFreeformBeatmapConverter(beatmap, this);
+            new ReplayEncoderBeatmapConverter(beatmap, this);
 
         public override DifficultyCalculator CreateDifficultyCalculator(IWorkingBeatmap beatmap) =>
-            new EmptyFreeformDifficultyCalculator(RulesetInfo, beatmap);
+            new ReplayEncoderDifficultyCalculator(RulesetInfo, beatmap);
 
         public override IEnumerable<Mod> GetModsFor(ModType type)
         {
             switch (type)
             {
                 case ModType.Automation:
-                    return [new EmptyFreeformModAutoplay()];
+                    return [new ReplayEncoderModAutoplay()];
 
                 default:
                     return [];
             }
         }
 
-        public override string ShortName => "emptyfreeformruleset";
+        public override string ShortName => "Replay Encoder";
 
         public override IEnumerable<KeyBinding> GetDefaultKeyBindings(int variant = 0) =>
         [
-            new KeyBinding(InputKey.Z, EmptyFreeformAction.Button1),
-            new KeyBinding(InputKey.X, EmptyFreeformAction.Button2),
+            new KeyBinding(InputKey.Z, ReplayEncoderAction.Button1),
+            new KeyBinding(InputKey.X, ReplayEncoderAction.Button2),
         ];
 
         public override Drawable CreateIcon() => new Icon(ShortName[0]);
@@ -96,7 +96,7 @@ namespace osu.Game.Rulesets.EmptyFreeform
         public static Harmony harmony = new Harmony("replay-encoder-ruleset");
         public static OsuGame game;
 
-        public EmptyFreeformRuleset()
+        public ReplayEncoderRuleset()
         {
             try { harmony.PatchAll(); }
             catch (Exception ex) { Console.Error.WriteLine(ex); throw; }

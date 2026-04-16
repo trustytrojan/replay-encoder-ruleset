@@ -15,7 +15,7 @@ using osuTK.Graphics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
-namespace osu.Game.Rulesets.EmptyFreeform;
+namespace osu.Game.Rulesets.ReplayEncoder;
 
 public partial class CapturableOsuScreenStack : OsuScreenStack, IBufferedDrawable
 {

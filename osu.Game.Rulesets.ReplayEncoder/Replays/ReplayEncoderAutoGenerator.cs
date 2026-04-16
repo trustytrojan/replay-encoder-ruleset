@@ -2,27 +2,27 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Game.Beatmaps;
-using osu.Game.Rulesets.EmptyFreeform.Objects;
+using osu.Game.Rulesets.ReplayEncoder.Objects;
 using osu.Game.Rulesets.Replays;
 
-namespace osu.Game.Rulesets.EmptyFreeform.Replays
+namespace osu.Game.Rulesets.ReplayEncoder.Replays
 {
-    public class EmptyFreeformAutoGenerator : AutoGenerator<EmptyFreeformReplayFrame>
+    public class ReplayEncoderAutoGenerator : AutoGenerator<ReplayEncoderReplayFrame>
     {
-        public new Beatmap<EmptyFreeformHitObject> Beatmap => (Beatmap<EmptyFreeformHitObject>)base.Beatmap;
+        public new Beatmap<ReplayEncoderHitObject> Beatmap => (Beatmap<ReplayEncoderHitObject>)base.Beatmap;
 
-        public EmptyFreeformAutoGenerator(IBeatmap beatmap)
+        public ReplayEncoderAutoGenerator(IBeatmap beatmap)
             : base(beatmap)
         {
         }
 
         protected override void GenerateFrames()
         {
-            Frames.Add(new EmptyFreeformReplayFrame());
+            Frames.Add(new ReplayEncoderReplayFrame());
 
-            foreach (EmptyFreeformHitObject hitObject in Beatmap.HitObjects)
+            foreach (ReplayEncoderHitObject hitObject in Beatmap.HitObjects)
             {
-                Frames.Add(new EmptyFreeformReplayFrame
+                Frames.Add(new ReplayEncoderReplayFrame
                 {
                     Time = hitObject.StartTime,
                     Position = hitObject.Position,

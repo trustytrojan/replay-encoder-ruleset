@@ -6,9 +6,9 @@ using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.Objects.Types;
 using osuTK;
 
-namespace osu.Game.Rulesets.EmptyFreeform.Objects
+namespace osu.Game.Rulesets.ReplayEncoder.Objects
 {
-    public class EmptyFreeformHitObject : HitObject, IHasPosition
+    public class ReplayEncoderHitObject : HitObject, IHasPosition
     {
         public override Judgement CreateJudgement() => new Judgement();
 
