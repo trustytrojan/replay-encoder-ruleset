@@ -1,9 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using osu.Framework.Graphics.UserInterface;
-using osu.Framework.Screens;
 using osu.Game.Graphics.UserInterface;
 using osu.Game.Localisation;
 using osu.Game.Scoring;
@@ -46,25 +44,20 @@ static class ContextMenuItemsPatch
 		if (!ReplayEncoderRuleset.ReplayEncoder.CheckUserSettings())
 			return;
 
-		var game = ReplayEncoderRuleset.Game;
+		ReplayEncoderRuleset.Harmony.PatchCategory("RecordingTrigger");
+		ReplayEncoderRuleset.Game.PresentScore(score, ScorePresentType.Gameplay);
+	}
+}
 
-		// Single-fire event handler to catch
-		void screenPushed(IScreen oldScreen, IScreen newScreen)
-		{
-			if (newScreen is not ReplayPlayerLoader rpl)
-				return;
-			Console.WriteLine("screenPushed event handler caught rpl!");
-			Console.WriteLine("Now waiting for it to fire OnLoadComplete...");
-			rpl.OnLoadComplete += _ =>
-			{
-				// rpl.IsCurrentScreen();
-				Console.WriteLine("rpl.OnLoadComplete fired! Sending it to ReplayEncoderDrawable!");
-				ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(rpl);
-			};
-			game.ScreenStack.ScreenPushed -= screenPushed;
-		}
-		game.ScreenStack.ScreenPushed += screenPushed;
-
-		game.PresentScore(score, ScorePresentType.Gameplay);
+// PlayerLoader.OnEntering() finishes all of the necessary transitions, which
+// ReplayPlayerLoader calls. We just need to wait for it to finish.
+[HarmonyPatch(typeof(ReplayPlayerLoader), nameof(ReplayPlayerLoader.OnEntering))]
+[HarmonyPatchCategory("RecordingTrigger")]
+static class ReplayPlayerLoader_OnEntering_Patch
+{
+	static void Postfix(ReplayPlayerLoader __instance)
+	{
+		ReplayEncoderRuleset.Harmony.UnpatchCategory("RecordingTrigger");
+		ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(__instance);
 	}
 }

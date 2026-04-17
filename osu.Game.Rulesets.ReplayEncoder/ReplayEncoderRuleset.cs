@@ -107,6 +107,7 @@ namespace osu.Game.Rulesets.ReplayEncoder
         {
             Harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
             Harmony.PatchCategory("StartupPatches");
+            GLRenderer_ExtractFrameBufferData_Patch.Patch(Harmony);
         }
     }
 }
