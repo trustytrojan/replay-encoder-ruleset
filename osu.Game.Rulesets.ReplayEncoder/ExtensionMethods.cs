@@ -19,17 +19,9 @@ public static class ExtensionMethods
 
 	public static GameplayClockContainer GetGameplayClockContainer(this Player player) =>
 		AccessTools.Property(typeof(Player), "GameplayClockContainer").GetValue(player) as GameplayClockContainer;
-	// typeof(Player).GetProperty("GameplayClockContainer").GetValue(player) as GameplayClockContainer;
-
-	public static void Start(this Player player) =>
-		player.GetGameplayClockContainer().Start();
-
-	public static void Stop(this Player player) =>
-		player.GetGameplayClockContainer().Stop();
 
 	public static ScoreProcessor GetScoreProcessor(this Player player) =>
 		AccessTools.Property(typeof(Player), "ScoreProcessor").GetValue(player) as ScoreProcessor;
-	// typeof(Player).GetProperty("ScoreProcessor").GetValue(player) as ScoreProcessor;
 
 	public static bool HasCompleted(this Player player) =>
 		player.GetScoreProcessor().HasCompleted.Value;

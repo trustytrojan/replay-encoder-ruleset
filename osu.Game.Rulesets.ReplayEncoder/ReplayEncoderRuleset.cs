@@ -92,7 +92,7 @@ namespace osu.Game.Rulesets.ReplayEncoder
             private void load(OsuGame game)
             {
                 Game = game;
-                Schedule(() => game.Add(replayEncoderDrawable = new ReplayEncoderDrawable()));
+                Schedule(() => game.Add(ReplayEncoder = new()));
             }
         }
 
@@ -100,13 +100,13 @@ namespace osu.Game.Rulesets.ReplayEncoder
         public override string RulesetAPIVersionSupported => CURRENT_RULESET_API_VERSION;
 
         public static OsuGame Game;
-        public static ReplayEncoderDrawable replayEncoderDrawable;
-        public static Harmony harmony;
+        public static ReplayEncoder ReplayEncoder = new();
+        public static Harmony Harmony;
 
         public ReplayEncoderRuleset()
         {
-            harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
-            harmony.PatchCategory("StartupPatches");
+            Harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
+            Harmony.PatchCategory("StartupPatches");
         }
     }
 }

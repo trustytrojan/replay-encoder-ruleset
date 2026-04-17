@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
-using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.UserInterface;
+using osu.Framework.Screens;
 using osu.Game.Graphics.UserInterface;
 using osu.Game.Localisation;
+using osu.Game.Scoring;
 using osu.Game.Screens;
+using osu.Game.Screens.Play;
 using osu.Game.Screens.Select;
 
 namespace osu.Game.Rulesets.ReplayEncoder;
@@ -27,24 +29,42 @@ static class ContextMenuItemsPatch
 		var items = new List<MenuItem>(__result);
 
 		// Find where to insert - after Export but before Delete, or at the end  
-		int insertIndex = items.FindIndex(item =>
-			item.Text.Value == SongSelectStrings.WatchReplay);
+		int insertIndex = items.FindIndex(item => item.Text.Value == SongSelectStrings.WatchReplay);
 
 		if (insertIndex >= 0)
 			insertIndex++;
 		else
 			insertIndex = items.Count;
 
-		items.Insert(insertIndex, new OsuMenuItem("Render to video",
-			MenuItemType.Standard,
-			() =>
-			{
-				if (!ReplayEncoderRuleset.replayEncoderDrawable.CheckUserSettings())
-					return;
-				ReplayEncoderRuleset.harmony.PatchCategory("ScreenExtensions_Push");
-				ReplayEncoderRuleset.Game.PresentScore(__instance.Score, ScorePresentType.Gameplay);
-			}));
+		items.Insert(insertIndex, new OsuMenuItem("Render to video", MenuItemType.Standard, () => HandleClick(__instance.Score)));
 
 		__result = [.. items];
+	}
+
+	static void HandleClick(ScoreInfo score)
+	{
+		if (!ReplayEncoderRuleset.ReplayEncoder.CheckUserSettings())
+			return;
+
+		var game = ReplayEncoderRuleset.Game;
+
+		// Single-fire event handler to catch
+		void screenPushed(IScreen oldScreen, IScreen newScreen)
+		{
+			if (newScreen is not ReplayPlayerLoader rpl)
+				return;
+			Console.WriteLine("screenPushed event handler caught rpl!");
+			Console.WriteLine("Now waiting for it to fire OnLoadComplete...");
+			rpl.OnLoadComplete += _ =>
+			{
+				// rpl.IsCurrentScreen();
+				Console.WriteLine("rpl.OnLoadComplete fired! Sending it to ReplayEncoderDrawable!");
+				ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(rpl);
+			};
+			game.ScreenStack.ScreenPushed -= screenPushed;
+		}
+		game.ScreenStack.ScreenPushed += screenPushed;
+
+		game.PresentScore(score, ScorePresentType.Gameplay);
 	}
 }

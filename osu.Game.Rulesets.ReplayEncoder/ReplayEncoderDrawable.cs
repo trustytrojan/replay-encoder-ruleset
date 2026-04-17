@@ -7,12 +7,12 @@ using ManagedBass;
 using ManagedBass.Mix;
 using osu.Framework.Allocation;
 using osu.Framework.Configuration;
+using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osu.Framework.Screens;
 using osu.Framework.Timing;
-using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
 using osu.Game.Screens.Play;
 using SixLabors.ImageSharp;
@@ -20,7 +20,7 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Game.Rulesets.ReplayEncoder;
 
-public partial class ReplayEncoderDrawable : CompositeDrawable
+public partial class ReplayEncoder : Drawable
 {
 	public class MyClock(IClock source) : FramedClock(source, false), IAdjustableClock
 	{
@@ -35,6 +35,7 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 	private double replayTime = 0;
 	private bool replayTimeStarted = false;
 	private ReplayPlayer player = null;
+	private GameplayClockContainer playerClock;
 
 	protected readonly ManualClock ScreenStackTimeSource = new()
 	{
@@ -87,17 +88,17 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 	private readonly StatisticTimer extractTime = new(), captureTime = new(), audioTime = new(), updateChildrenTime = new();
 
 	[Resolved]
-	private OsuGame game { get; set; }
+	private OsuGame Game { get; set; }
 
 	[Resolved]
-	private FrameworkConfigManager frameworkConfig { get; set; }
+	private FrameworkConfigManager FrameworkConfig { get; set; }
 
 	public bool CheckUserSettings()
 	{
 		// Programatically changing the UI is just impossible...
-		if (game.Toolbar.State.Value == Visibility.Visible)
+		if (Game.Toolbar.State.Value == Visibility.Visible)
 		{
-			game.PostNotification(new SimpleErrorNotification()
+			Game.PostNotification(new SimpleErrorNotification()
 			{
 				Text = "Toolbar must be hidden first!"
 			});
@@ -105,9 +106,9 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 		}
 
 		// I refuse to deal with this...
-		if (frameworkConfig.Get<ExecutionMode>(FrameworkSetting.ExecutionMode) == ExecutionMode.MultiThreaded)
+		if (FrameworkConfig.Get<ExecutionMode>(FrameworkSetting.ExecutionMode) == ExecutionMode.MultiThreaded)
 		{
-			game.PostNotification(new SimpleErrorNotification()
+			Game.PostNotification(new SimpleErrorNotification()
 			{
 				Text = "Set threading mode to single-threaded first!"
 			});
@@ -121,18 +122,18 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 	{
 		if (Recording)
 			return;
-		StartRecording(game.ScreenStack);
+		StartRecording(Game.ScreenStack);
 
 		// Only set the replay clock when the ReplayPlayer has loaded
-		Action waitForNonNullPlayerThenStart = null;
-		Schedule(waitForNonNullPlayerThenStart = () =>
+		void waitForNonNullPlayerThenStart(Drawable _)
 		{
 			var player = rpl.CurrentPlayer;
 			if (player == null || !player.IsCurrentScreen())
-				Schedule(waitForNonNullPlayerThenStart);
-			else
-				StartReplayTime((ReplayPlayer)player);
-		});
+				return;
+			StartReplayTime((ReplayPlayer)player);
+			Game.OnUpdate -= waitForNonNullPlayerThenStart;
+		}
+		Game.OnUpdate += waitForNonNullPlayerThenStart;
 	}
 
 	// We just count with a double, because Player.GameplayClockContainer actually controls
@@ -141,6 +142,7 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 	{
 		replayTimeStarted = true;
 		this.player = player;
+		playerClock = player.GetGameplayClockContainer();
 		new Harmony($"{this}#{GetHashCode()}").PatchCategory("WhileRecording");
 	}
 
@@ -206,7 +208,10 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 			OnExtractBegin = extractTime.Begin,
 			OnExtractEnd = extractTime.End
 		};
-		AddInternal(screenshotter);
+		Game.Add(screenshotter);
+		// AddInternal(screenshotter);
+
+		Game.OnUpdate += Update;
 
 		Logger.Log("Started rendering replay.", level: LogLevel.Important);
 	}
@@ -220,9 +225,12 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 		replayTimeStarted = false;
 		screenshotter.Target.Clock = originalStackClock;
 		// ScreenStackClock = null;
-		RemoveInternal(screenshotter, true);
+		// RemoveInternal(screenshotter, true);
+		Game.Remove(screenshotter, true);
 		ffmpeg?.Dispose();
 		ffmpeg = null;
+
+		Game.OnUpdate -= Update;
 
 		new Harmony($"{this}#{GetHashCode()}").UnpatchCategory("WhileRecording");
 
@@ -246,9 +254,9 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 		Logger.Log("Stopped rendering replay.", level: LogLevel.Important);
 	}
 
-	protected override void Update()
+	protected void Update(Drawable _)
 	{
-		base.Update();
+		// base.Update();
 
 		if (!Recording || currentlyCapturing)
 		{
@@ -280,8 +288,8 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 		if (replayTimeStarted && !player.HasCompleted())
 		{
 			// Stop BEFORE seeking so it STAYS stopped as the image is taken.
-			player?.Stop();
-			player?.Seek(replayTime);
+			playerClock?.Stop();
+			playerClock?.Seek(replayTime);
 			// We keep the clock stopped as to not take unpredictable images of the screen.
 
 			// Increment now before we forget.
@@ -351,7 +359,7 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 		if (replayTimeStarted)
 		{
 			// Start playing so that on the next update we will have audio to record.
-			player.Start();
+			playerClock.Start();
 		}
 	}
 }
