@@ -16,8 +16,8 @@ namespace osu.Game.Rulesets.ReplayEncoder;
 
 public partial class CapturableOsuScreenStack : OsuScreenStack, IBufferedDrawable
 {
-	public Action? OnExtractBegin = null, OnExtractEnd = null;
-	public Action<Image<Rgba32>?>? OnImageReceived = null;
+	public Action OnExtractBegin = null, OnExtractEnd = null;
+	public Action<Image<Rgba32>> OnImageReceived = null;
 	private readonly BufferedDrawNodeSharedData sharedData = new([RenderBufferFormat.D16], pixelSnapping: true, clipToRootNode: true);
 	private IShader textureShader = null!;
 

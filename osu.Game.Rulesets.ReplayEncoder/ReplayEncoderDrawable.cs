@@ -1,11 +1,9 @@
 using System;
 using System.Diagnostics;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using ManagedBass;
 using ManagedBass.Mix;
-using osu.Framework.Audio.Mixing;
 using osu.Framework.Graphics;
 using osu.Framework.Logging;
 using osu.Framework.Timing;
@@ -78,7 +76,7 @@ public partial class ReplayEncoderDrawable : Drawable
 
 	// Lock that waits for the Image before advancing replay time
 	private bool currentlyCapturing = false;
-	private StatisticTimer extractTime = new(), captureTime = new(), audioTime = new(), updateChildrenTime = new();
+	private readonly StatisticTimer extractTime = new(), captureTime = new(), audioTime = new(), updateChildrenTime = new();
 
 	// We just count with a double, because Player.GameplayClockContainer actually controls
 	// the beatmap's Track... so all we need to do is Seek() to our simulated time!
@@ -128,19 +126,19 @@ public partial class ReplayEncoderDrawable : Drawable
 			throw new InvalidOperationException($"BASS error: {Bass.LastError}");
 
 		var audioManager = ReplayEncoderMain.Game.Audio;
-		var trackMixer = GetMixerHandle(audioManager.TrackMixer);
-		var sampleMixer = GetMixerHandle(audioManager.SampleMixer);
+		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
+		int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
 
 		// Remove mixers from global mixer
-		if (!BassMix.MixerRemoveChannel(trackMixer))
+		if (!BassMix.MixerRemoveChannel(trackMixerHandle))
 			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-		if (!BassMix.MixerRemoveChannel(sampleMixer))
+		if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
 			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
 
 		// Add mixers to my mixer
-		if (!BassMix.MixerAddChannel(myMixerHandle, trackMixer, 0))
+		if (!BassMix.MixerAddChannel(myMixerHandle, trackMixerHandle, 0))
 			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-		if (!BassMix.MixerAddChannel(myMixerHandle, sampleMixer, 0))
+		if (!BassMix.MixerAddChannel(myMixerHandle, sampleMixerHandle, 0))
 			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
 
 		Task.Run(() =>
@@ -172,19 +170,20 @@ public partial class ReplayEncoderDrawable : Drawable
 		ffmpeg = null;
 
 		var audioManager = ReplayEncoderMain.Game.Audio;
-		var trackMixer = GetMixerHandle(audioManager.TrackMixer);
-		var sampleMixer = GetMixerHandle(audioManager.SampleMixer);
+		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
+		int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
+		int globalMixerHandle = audioManager.GetGlobalMixerHandle();
 
 		// Remove mixers from my mixer
-		if (!BassMix.MixerRemoveChannel(trackMixer))
+		if (!BassMix.MixerRemoveChannel(trackMixerHandle))
 			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-		if (!BassMix.MixerRemoveChannel(sampleMixer))
+		if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
 			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
 
 		// Add mixers back to global mixer
-		if (!BassMix.MixerAddChannel((int)audioManager.GlobalMixerHandle.Value, trackMixer, 0))
+		if (!BassMix.MixerAddChannel(globalMixerHandle, trackMixerHandle, 0))
 			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-		if (!BassMix.MixerAddChannel((int)audioManager.GlobalMixerHandle.Value, sampleMixer, 0))
+		if (!BassMix.MixerAddChannel(globalMixerHandle, sampleMixerHandle, 0))
 			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
 
 		Logger.Log("Stopped rendering replay.", level: LogLevel.Important);
@@ -209,28 +208,28 @@ public partial class ReplayEncoderDrawable : Drawable
 		// The player was started at the end of OnImageReceived(),
 		// giving BASS a lot of time to render audio, so we can record
 		// once children have updated with the new clock state.
-		ScheduleAfterChildren(() =>
+		// ScheduleAfterChildren(() =>
+		// {
+		// updateChildrenTime.End();
+		recordAudio();
+
+		// Don't stop the music if the replay finished.
+		if (replayTimeStarted && !player.HasCompleted())
 		{
-			updateChildrenTime.End();
-			recordAudio();
+			// Stop BEFORE seeking so it STAYS stopped as the image is taken.
+			player.Stop();
+			player.Seek(replayTime);
+			// We keep the clock stopped as to not take unpredictable images of the screen.
 
-			// Don't stop the music if the replay finished.
-			if (replayTimeStarted && !player.HasCompleted)
-			{
-				// Stop BEFORE seeking so it STAYS stopped as the image is taken.
-				player.Stop();
-				player.Seek(replayTime);
-				// We keep the clock stopped as to not take unpredictable images of the screen.
-
-				// Increment now before we forget.
-				replayTime += frame_time_ms;
-			}
-		});
+			// Increment now before we forget.
+			replayTime += frame_time_ms;
+		}
+		// });
 
 		CaptureScreenStack.RequestCapture();
 		currentlyCapturing = true;
 		captureTime.Begin();
-		updateChildrenTime.Begin();
+		// updateChildrenTime.Begin();
 	}
 
 	private void recordAudio()
@@ -242,8 +241,7 @@ public partial class ReplayEncoderDrawable : Drawable
 		{
 			int afpvf = samplerate / fps;
 			int samples = afpvf * channels;
-			int sampleSize = ResolutionToByteSize(resolution);
-			audioBuf = new byte[samples * sampleSize];
+			audioBuf = new byte[samples * resolution.ByteSize()];
 		}
 
 		audioTime.Begin();
@@ -276,7 +274,7 @@ public partial class ReplayEncoderDrawable : Drawable
 				VideoSize = new() { X = image.Width, Y = image.Height },
 				Framerate = fps,
 				Samplerate = samplerate,
-				SampleFormat = ResolutionToFfmpegSmpFmt(resolution),
+				SampleFormat = resolution.ToFfmpegSmpFmt(),
 				Channels = channels
 			};
 			ffmpeg.Start();
@@ -293,31 +291,4 @@ public partial class ReplayEncoderDrawable : Drawable
 			player.Start();
 		}
 	}
-
-	public static int GetMixerHandle(AudioMixer mixer)
-	{
-		var bassMixerType = typeof(AudioMixer).Assembly.GetType("osu.Framework.Audio.Mixing.Bass.BassAudioMixer")
-			?? throw new InvalidOperationException("BassAudioMixer type not found");
-		var handleProperty = bassMixerType.GetProperty("Handle")
-			?? throw new InvalidOperationException("Handle property not found");
-		return (int)handleProperty.GetValue(mixer);
-	}
-
-	public static string ResolutionToFfmpegSmpFmt(Resolution r) =>
-		r switch
-		{
-			Resolution.Float => "f32le",
-			Resolution.Short => "s16le",
-			Resolution.Byte => "u8",
-			_ => throw new ArgumentException($"Resolution {r} invalid"),
-		};
-
-	public static int ResolutionToByteSize(Resolution r) =>
-		r switch
-		{
-			Resolution.Float => 4,
-			Resolution.Short => 2,
-			Resolution.Byte => 1,
-			_ => throw new ArgumentException($"Resolution {r} invalid"),
-		};
 }
