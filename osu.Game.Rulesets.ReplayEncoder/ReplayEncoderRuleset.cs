@@ -27,6 +27,8 @@ using osu.Game.Screens;
 using osu.Game.Screens.Footer;
 using osuTK;
 using osuTK.Graphics;
+using osu.Game.Screens.Select;
+using System.Reflection;
 
 namespace osu.Game.Rulesets.ReplayEncoder
 {
@@ -85,16 +87,35 @@ namespace osu.Game.Rulesets.ReplayEncoder
                     }
                 ];
             }
+
+            [BackgroundDependencyLoader]
+            private void load(OsuGame game)
+            {
+                Game = game;
+                Schedule(() => game.Add(replayEncoderDrawable = new ReplayEncoderDrawable()));
+            }
         }
 
         // Leave this line intact. It will bake the correct version into the ruleset on each build/release.
         public override string RulesetAPIVersionSupported => CURRENT_RULESET_API_VERSION;
 
-        // Our Ruleset's constructor is the *earliest* point in time we can run code:
-        // https://github.com/ppy/osu/blob/8c6818e275d0bd369506d86c68c57df7af7163bd/osu.Game/Rulesets/RealmRulesetStore.cs#L39
+        public static OsuGame Game;
+        public static ReplayEncoderDrawable replayEncoderDrawable;
+
         public ReplayEncoderRuleset()
         {
-            ReplayEncoderMain.RunHarmonyPatches();
+            // Debug: Find the actual method  
+            var methods = typeof(BeatmapLeaderboardScore).GetMethods(BindingFlags.Public |
+                BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(m => m.Name.Contains("ContextMenuItems"));
+            foreach (var method in methods)
+            {
+                Console.WriteLine($"Found: {method.Name} - Declaring: {method.DeclaringType}");
+            }
+
+            var harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
+            harmony.PatchCategory("ContextMenuItems");
+            // harmony.PatchAll();
         }
     }
 }

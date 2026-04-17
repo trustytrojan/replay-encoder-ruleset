@@ -4,8 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using ManagedBass;
 using ManagedBass.Mix;
-using osu.Framework.Graphics;
+using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
+using osu.Framework.Screens;
 using osu.Framework.Timing;
 using osu.Game.Screens.Play;
 using SixLabors.ImageSharp;
@@ -13,7 +14,7 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Game.Rulesets.ReplayEncoder;
 
-public partial class ReplayEncoderDrawable : Drawable
+public partial class ReplayEncoderDrawable : CompositeDrawable
 {
 	public class MyClock(IClock source) : FramedClock(source, false), IAdjustableClock
 	{
@@ -29,18 +30,19 @@ public partial class ReplayEncoderDrawable : Drawable
 	private bool replayTimeStarted = false;
 	private ReplayPlayer player = null;
 
-	protected ManualClock ScreenStackTimeSource = new()
+	protected readonly ManualClock ScreenStackTimeSource = new()
 	{
 		CurrentTime = 0,
 		IsRunning = true,
 		Rate = 1,
 	};
-	public IFrameBasedClock ScreenStackClock = null;
+	// public IFrameBasedClock ScreenStackClock = null;
 	private FFmpegCliProcess ffmpeg;
 	public bool Recording = false;
 	private const int fps = 60;
 	private const double frame_time_ms = 1000.0 / fps;
-	protected CapturableOsuScreenStack CaptureScreenStack;
+	// protected CapturableOsuScreenStack CaptureScreenStack;
+	private ScreenStackScreenshotter screenshotter;
 	private IFrameBasedClock originalStackClock;
 	private double simulatedTimeToInvokeAction;
 	private Action actionWhenSimulatedTimeReached;
@@ -86,7 +88,7 @@ public partial class ReplayEncoderDrawable : Drawable
 		this.player = player;
 	}
 
-	protected void StartRecording()
+	public void StartRecording(ScreenStack target)
 	{
 		// This allows for a 10-fold speed increase over image.CreateReadOnlyPixelSpan()!
 		// See FFmpegCliProcess.WriteFrame().
@@ -102,17 +104,8 @@ public partial class ReplayEncoderDrawable : Drawable
 		currentlyCapturing = false;
 
 		// this.CaptureScreenStack = stack;
-		originalStackClock = CaptureScreenStack.Clock;
-		CaptureScreenStack.Clock = ScreenStackClock = new MyClock(ScreenStackTimeSource);
-
-		{ // Finish transforms of the ENTIRE scene graph
-			Drawable current = CaptureScreenStack;
-			while (current != null)
-			{
-				current.FinishTransforms(propagateChildren: true);
-				current = current.Parent;
-			}
-		}
+		originalStackClock = target.Clock;
+		target.Clock = new MyClock(ScreenStackTimeSource);
 
 		// Create our own mixer to combine TrackMixer and SampleMixer
 		myMixerHandle = BassMix.CreateMixerStream(samplerate, channels, BassFlags.MixerNonStop | BassFlags.Decode);
@@ -125,21 +118,21 @@ public partial class ReplayEncoderDrawable : Drawable
 		else
 			throw new InvalidOperationException($"BASS error: {Bass.LastError}");
 
-		var audioManager = ReplayEncoderMain.Game.Audio;
-		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
-		int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
+		// var audioManager = ReplayEncoderRuleset.Game.Audio;
+		// int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
+		// int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
 
-		// Remove mixers from global mixer
-		if (!BassMix.MixerRemoveChannel(trackMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-		if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+		// // Remove mixers from global mixer
+		// if (!BassMix.MixerRemoveChannel(trackMixerHandle))
+		// 	throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+		// if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
+		// 	throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
 
-		// Add mixers to my mixer
-		if (!BassMix.MixerAddChannel(myMixerHandle, trackMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-		if (!BassMix.MixerAddChannel(myMixerHandle, sampleMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+		// // Add mixers to my mixer
+		// if (!BassMix.MixerAddChannel(myMixerHandle, trackMixerHandle, 0))
+		// 	throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+		// if (!BassMix.MixerAddChannel(myMixerHandle, sampleMixerHandle, 0))
+		// 	throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
 
 		Task.Run(() =>
 		{
@@ -150,9 +143,14 @@ public partial class ReplayEncoderDrawable : Drawable
 			}
 		});
 
-		CaptureScreenStack.OnImageReceived = OnImageReceived;
-		CaptureScreenStack.OnExtractBegin = extractTime.Begin;
-		CaptureScreenStack.OnExtractEnd = extractTime.End;
+		screenshotter = new()
+		{
+			Target = target,
+			OnImageReceived = OnImageReceived,
+			OnExtractBegin = extractTime.Begin,
+			OnExtractEnd = extractTime.End
+		};
+		AddInternal(screenshotter);
 
 		Logger.Log("Started rendering replay.", level: LogLevel.Important);
 	}
@@ -164,27 +162,28 @@ public partial class ReplayEncoderDrawable : Drawable
 		Recording = false;
 		player = null;
 		replayTimeStarted = false;
-		CaptureScreenStack.Clock = originalStackClock;
-		ScreenStackClock = null;
+		screenshotter.Target.Clock = originalStackClock;
+		// ScreenStackClock = null;
+		RemoveInternal(screenshotter, true);
 		ffmpeg?.Dispose();
 		ffmpeg = null;
 
-		var audioManager = ReplayEncoderMain.Game.Audio;
-		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
-		int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
-		int globalMixerHandle = audioManager.GetGlobalMixerHandle();
+		// var audioManager = ReplayEncoderRuleset.Game.Audio;
+		// int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
+		// int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
+		// int globalMixerHandle = audioManager.GetGlobalMixerHandle();
 
-		// Remove mixers from my mixer
-		if (!BassMix.MixerRemoveChannel(trackMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-		if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+		// // Remove mixers from my mixer
+		// if (!BassMix.MixerRemoveChannel(trackMixerHandle))
+		// 	throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+		// if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
+		// 	throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
 
-		// Add mixers back to global mixer
-		if (!BassMix.MixerAddChannel(globalMixerHandle, trackMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-		if (!BassMix.MixerAddChannel(globalMixerHandle, sampleMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+		// // Add mixers back to global mixer
+		// if (!BassMix.MixerAddChannel(globalMixerHandle, trackMixerHandle, 0))
+		// 	throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+		// if (!BassMix.MixerAddChannel(globalMixerHandle, sampleMixerHandle, 0))
+		// 	throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
 
 		Logger.Log("Stopped rendering replay.", level: LogLevel.Important);
 	}
@@ -194,11 +193,15 @@ public partial class ReplayEncoderDrawable : Drawable
 		base.Update();
 
 		if (!Recording || currentlyCapturing)
+		{
+			// Console.WriteLine("not recording");
 			return;
+		}
+		// Console.WriteLine("recording");
 
 		// TODO: ffmpeg can be inited here using ScheduleAfterChildren()
 
-		if (ScreenStackClock != null)
+		if (screenshotter?.Target.Clock != null)
 		{
 			if (ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
 				actionWhenSimulatedTimeReached?.Invoke();
@@ -208,25 +211,25 @@ public partial class ReplayEncoderDrawable : Drawable
 		// The player was started at the end of OnImageReceived(),
 		// giving BASS a lot of time to render audio, so we can record
 		// once children have updated with the new clock state.
-		// ScheduleAfterChildren(() =>
+		// // ScheduleAfterChildren(() =>
+		// // {
+		// // updateChildrenTime.End();
+		// recordAudio();
+
+		// // Don't stop the music if the replay finished.
+		// if (replayTimeStarted && !player.HasCompleted())
 		// {
-		// updateChildrenTime.End();
-		recordAudio();
+		// 	// Stop BEFORE seeking so it STAYS stopped as the image is taken.
+		// 	player.Stop();
+		player?.Seek(replayTime);
+		// 	// We keep the clock stopped as to not take unpredictable images of the screen.
 
-		// Don't stop the music if the replay finished.
-		if (replayTimeStarted && !player.HasCompleted())
-		{
-			// Stop BEFORE seeking so it STAYS stopped as the image is taken.
-			player.Stop();
-			player.Seek(replayTime);
-			// We keep the clock stopped as to not take unpredictable images of the screen.
+		// 	// Increment now before we forget.
+		// 	replayTime += frame_time_ms;
+		// }
+		// // });
 
-			// Increment now before we forget.
-			replayTime += frame_time_ms;
-		}
-		// });
-
-		CaptureScreenStack.RequestCapture();
+		screenshotter.RequestCapture();
 		currentlyCapturing = true;
 		captureTime.Begin();
 		// updateChildrenTime.Begin();
