@@ -83,7 +83,7 @@ namespace osu.Game.Rulesets.ReplayEncoder
 			GenerateDrawNodeSubtreeInjector.Screenshotter = null;
 		}
 
-		// Instead of us redrawing the entirety of Target,
+		// Instead of us redrawing the entirety of our Target,
 		// let's use Lib.Harmony to inject **our** draw node into the Target's GenerateDrawNodeSubtree!
 		[HarmonyPatch(typeof(CompositeDrawable), "GenerateDrawNodeSubtree")]
 		private class GenerateDrawNodeSubtreeInjector

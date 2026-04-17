@@ -2,12 +2,18 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using HarmonyLib;
 using ManagedBass;
 using ManagedBass.Mix;
+using osu.Framework.Allocation;
+using osu.Framework.Configuration;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
+using osu.Framework.Platform;
 using osu.Framework.Screens;
 using osu.Framework.Timing;
+using osu.Game.Overlays;
+using osu.Game.Overlays.Notifications;
 using osu.Game.Screens.Play;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -38,7 +44,7 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 	};
 	// public IFrameBasedClock ScreenStackClock = null;
 	private FFmpegCliProcess ffmpeg;
-	public bool Recording = false;
+	public bool Recording { get; private set; } = false;
 	private const int fps = 60;
 	private const double frame_time_ms = 1000.0 / fps;
 	// protected CapturableOsuScreenStack CaptureScreenStack;
@@ -80,12 +86,62 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 	private bool currentlyCapturing = false;
 	private readonly StatisticTimer extractTime = new(), captureTime = new(), audioTime = new(), updateChildrenTime = new();
 
+	[Resolved]
+	private OsuGame game { get; set; }
+
+	[Resolved]
+	private FrameworkConfigManager frameworkConfig { get; set; }
+
+	public bool CheckUserSettings()
+	{
+		// Programatically changing the UI is just impossible...
+		if (game.Toolbar.State.Value == Visibility.Visible)
+		{
+			game.PostNotification(new SimpleErrorNotification()
+			{
+				Text = "Toolbar must be hidden first!"
+			});
+			return false;
+		}
+
+		// I refuse to deal with this...
+		if (frameworkConfig.Get<ExecutionMode>(FrameworkSetting.ExecutionMode) == ExecutionMode.MultiThreaded)
+		{
+			game.PostNotification(new SimpleErrorNotification()
+			{
+				Text = "Set threading mode to single-threaded first!"
+			});
+			return false;
+		}
+
+		return true;
+	}
+
+	public void ReceiveReplayPlayerLoader(ReplayPlayerLoader rpl)
+	{
+		if (Recording)
+			return;
+		StartRecording(game.ScreenStack);
+
+		// Only set the replay clock when the ReplayPlayer has loaded
+		Action waitForNonNullPlayerThenStart = null;
+		Schedule(waitForNonNullPlayerThenStart = () =>
+		{
+			var player = rpl.CurrentPlayer;
+			if (player == null || !player.IsCurrentScreen())
+				Schedule(waitForNonNullPlayerThenStart);
+			else
+				StartReplayTime((ReplayPlayer)player);
+		});
+	}
+
 	// We just count with a double, because Player.GameplayClockContainer actually controls
 	// the beatmap's Track... so all we need to do is Seek() to our simulated time!
 	protected void StartReplayTime(ReplayPlayer player)
 	{
 		replayTimeStarted = true;
 		this.player = player;
+		new Harmony($"{this}#{GetHashCode()}").PatchCategory("WhileRecording");
 	}
 
 	public void StartRecording(ScreenStack target)
@@ -168,6 +224,8 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 		ffmpeg?.Dispose();
 		ffmpeg = null;
 
+		new Harmony($"{this}#{GetHashCode()}").UnpatchCategory("WhileRecording");
+
 		// var audioManager = ReplayEncoderRuleset.Game.Audio;
 		// int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
 		// int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
@@ -203,31 +261,33 @@ public partial class ReplayEncoderDrawable : CompositeDrawable
 
 		if (screenshotter?.Target.Clock != null)
 		{
-			if (ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
-				actionWhenSimulatedTimeReached?.Invoke();
+			if (actionWhenSimulatedTimeReached != null && ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
+				actionWhenSimulatedTimeReached.Invoke();
 			ScreenStackTimeSource.CurrentTime += frame_time_ms;
+			// Console.WriteLine($"ScreenStackTimeSource updated, CurrentTime={ScreenStackTimeSource.CurrentTime}");
 		}
 
 		// The player was started at the end of OnImageReceived(),
 		// giving BASS a lot of time to render audio, so we can record
 		// once children have updated with the new clock state.
-		// // ScheduleAfterChildren(() =>
-		// // {
-		// // updateChildrenTime.End();
+		// ScheduleAfterChildren(() =>
+		// {
+		// updateChildrenTime.End();
 		// recordAudio();
 
-		// // Don't stop the music if the replay finished.
-		// if (replayTimeStarted && !player.HasCompleted())
-		// {
-		// 	// Stop BEFORE seeking so it STAYS stopped as the image is taken.
-		// 	player.Stop();
-		player?.Seek(replayTime);
-		// 	// We keep the clock stopped as to not take unpredictable images of the screen.
+		// Don't stop the music if the replay finished.
+		// This keeps it playing when moving to the results screen.
+		if (replayTimeStarted && !player.HasCompleted())
+		{
+			// Stop BEFORE seeking so it STAYS stopped as the image is taken.
+			player?.Stop();
+			player?.Seek(replayTime);
+			// We keep the clock stopped as to not take unpredictable images of the screen.
 
-		// 	// Increment now before we forget.
-		// 	replayTime += frame_time_ms;
-		// }
-		// // });
+			// Increment now before we forget.
+			replayTime += frame_time_ms;
+		}
+		// });
 
 		screenshotter.RequestCapture();
 		currentlyCapturing = true;

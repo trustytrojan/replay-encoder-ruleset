@@ -6,12 +6,13 @@ using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.UserInterface;
 using osu.Game.Graphics.UserInterface;
 using osu.Game.Localisation;
+using osu.Game.Screens;
 using osu.Game.Screens.Select;
 
 namespace osu.Game.Rulesets.ReplayEncoder;
 
 [HarmonyPatch(typeof(BeatmapLeaderboardScore), "osu.Framework.Graphics.Cursor.IHasContextMenu.get_ContextMenuItems")]
-[HarmonyPatchCategory("ContextMenuItems")]
+[HarmonyPatchCategory("StartupPatches")]
 static class ContextMenuItemsPatch
 {
 	public static void Postfix(ref MenuItem[] __result, BeatmapLeaderboardScore __instance)
@@ -36,7 +37,13 @@ static class ContextMenuItemsPatch
 
 		items.Insert(insertIndex, new OsuMenuItem("Render to video",
 			MenuItemType.Standard,
-			() => ReplayEncoderRuleset.replayEncoderDrawable.StartRecording(ReplayEncoderRuleset.Game.ScreenStack)));
+			() =>
+			{
+				if (!ReplayEncoderRuleset.replayEncoderDrawable.CheckUserSettings())
+					return;
+				ReplayEncoderRuleset.harmony.PatchCategory("ScreenExtensions_Push");
+				ReplayEncoderRuleset.Game.PresentScore(__instance.Score, ScorePresentType.Gameplay);
+			}));
 
 		__result = [.. items];
 	}

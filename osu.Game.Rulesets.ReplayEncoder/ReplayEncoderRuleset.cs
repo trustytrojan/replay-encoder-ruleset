@@ -101,21 +101,12 @@ namespace osu.Game.Rulesets.ReplayEncoder
 
         public static OsuGame Game;
         public static ReplayEncoderDrawable replayEncoderDrawable;
+        public static Harmony harmony;
 
         public ReplayEncoderRuleset()
         {
-            // Debug: Find the actual method  
-            var methods = typeof(BeatmapLeaderboardScore).GetMethods(BindingFlags.Public |
-                BindingFlags.NonPublic | BindingFlags.Instance)
-                .Where(m => m.Name.Contains("ContextMenuItems"));
-            foreach (var method in methods)
-            {
-                Console.WriteLine($"Found: {method.Name} - Declaring: {method.DeclaringType}");
-            }
-
-            var harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
-            harmony.PatchCategory("ContextMenuItems");
-            // harmony.PatchAll();
+            harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
+            harmony.PatchCategory("StartupPatches");
         }
     }
 }
