@@ -29,6 +29,8 @@ using osuTK;
 using osuTK.Graphics;
 using osu.Game.Screens.Select;
 using System.Reflection;
+using osu.Framework.Audio;
+using osu.Framework.Extensions.ObjectExtensions;
 
 namespace osu.Game.Rulesets.ReplayEncoder
 {
@@ -88,26 +90,64 @@ namespace osu.Game.Rulesets.ReplayEncoder
                 ];
             }
 
+            // This is the earliest point that we can get an OsuGame reference.
+            // But since multiple Icon instances are created, and asynchronously...
+            // Do NOT do any sensitive work here. JUST grab the OsuGame reference.
             [BackgroundDependencyLoader]
             private void load(OsuGame game)
             {
+                if (Game != null)
+                    return;
                 Game = game;
-                Schedule(() => game.Add(ReplayEncoder = new()));
+                Schedule(() => game.Add(ReplayEncoder));
             }
         }
 
         // Leave this line intact. It will bake the correct version into the ruleset on each build/release.
         public override string RulesetAPIVersionSupported => CURRENT_RULESET_API_VERSION;
 
-        public static OsuGame Game;
-        public static ReplayEncoder ReplayEncoder = new();
-        public static Harmony Harmony;
+        public static OsuGame Game { get; private set; }
+        public static readonly ReplayEncoder ReplayEncoder = new();
+        public static Harmony Harmony { get; private set; }
 
         public ReplayEncoderRuleset()
         {
             Harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
             Harmony.PatchCategory("StartupPatches");
             GLRenderer_ExtractFrameBufferData_Patch.Patch(Harmony);
+            Task.Run(() =>
+            {
+                while (Game == null)
+                    Thread.Sleep(1_000);
+                SetGlobalMixer();
+            });
+        }
+
+        static void SetGlobalMixer()
+        {
+            Console.WriteLine("SetGlobalMixer called");
+
+            if (Game.Audio.UseExperimentalWasapi.Value || Game.Audio.GetGlobalMixerHandle().Value != null)
+                return;
+
+            Console.WriteLine("Calling AudioManager.initCurrentDevice");
+
+            try
+            {
+                // This runs our AudioThread.InitDevice postfix which sets the global mixer.
+                AccessTools.Method(typeof(AudioManager), "initCurrentDevice").Invoke(Game.Audio, []);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("AudioManager.initCurrentDevice", ex);
+            }
+
+            Console.WriteLine("AudioManager.initCurrentDevice returned");
+
+            if (Game.Audio.GetGlobalMixerHandle().Value == null)
+                throw new InvalidOperationException("Global mixer handle was not set by AudioManager.initCurrentDevice");
+
+            Console.WriteLine("AudioManager.GlobalMixerHandle is not null");
         }
     }
 }

@@ -58,10 +58,8 @@ public sealed class FFmpegCliProcess : IDisposable
         string audioPipeName = $"osu-framework-ffmpeg-audio-{Guid.NewGuid():N}";
         audioPipe = new NamedPipeServerStream(audioPipeName, PipeDirection.Out);
 
-        // string audioArgs = $"-f {SampleFormat} -ar {Samplerate} -ac {Channels} -i {toNamedPipePath(audioPipeName)}";
-        // string mappingArgs = "-map 0:v -map 1:a";
-        string audioArgs = "";
-        string mappingArgs = "-map 0:v";
+        string audioArgs = $"-f {SampleFormat} -ar {Samplerate} -ac {Channels} -i {toNamedPipePath(audioPipeName)}";
+        string mappingArgs = "-map 0:v -map 1:a";
 
         ffmpegProcess = new Process
         {

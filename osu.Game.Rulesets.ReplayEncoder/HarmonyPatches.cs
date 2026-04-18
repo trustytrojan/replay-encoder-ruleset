@@ -1,6 +1,11 @@
 using System;
 using HarmonyLib;
+using ManagedBass;
+using ManagedBass.Mix;
+using ManagedBass.Wasapi;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics.Rendering;
+using osu.Framework.Threading;
 using osu.Game.Screens.Play;
 using osuTK.Graphics.ES30;
 using SixLabors.ImageSharp;
@@ -131,5 +136,55 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 		_expectedByteSize = byteSize;
 		_isPboInitialized = true;
 		_pboIndex = 0;
+	}
+}
+
+[HarmonyPatch(typeof(AudioThread), "InitDevice")]
+[HarmonyPatchCategory("StartupPatches")]
+static class AudioThread_InitDevice_Patch
+{
+	static void Postfix(AudioThread __instance, bool useExperimentalWasapi)
+	{
+		if (useExperimentalWasapi)
+			// Global mixer is already setup
+			return;
+
+		var globalMixerHandle = AccessTools.FieldRefAccess<AudioThread, Bindable<int?>>(__instance, "globalMixerHandle");
+
+		if (globalMixerHandle.Value != null)
+			return;
+
+		globalMixerHandle.Value = BassMix.CreateMixerStream(44100, 2, BassFlags.MixerNonStop);
+
+		if (globalMixerHandle.Value == 0)
+			throw new InvalidOperationException($"CreateMixerStream: {Bass.LastError}");
+
+		if (!Bass.ChannelPlay((int)globalMixerHandle.Value))
+			throw new InvalidOperationException($"ChannelPlay: {Bass.LastError}");
+	}
+}
+
+[HarmonyPatch(typeof(AudioThread), "freeWasapi")]
+[HarmonyPatchCategory("StartupPatches")]
+static class AudioThread_freeWasapi_Patch
+{
+	static bool Prefix(AudioThread __instance)
+	{
+		// We can check whether this is non-null to see if WASAPI was initialized.
+		var wasapiProcedure = AccessTools.FieldRefAccess<AudioThread, WasapiProcedure>(__instance, "wasapiProcedure");
+
+		if (wasapiProcedure != null)
+			// WASAPI was initialized. Let the original method run.
+			return true;
+
+		// WASAPI was not initialized. We need to free our stream.
+		var globalMixerHandle = AccessTools.FieldRefAccess<AudioThread, Bindable<int?>>(__instance, "globalMixerHandle");
+
+		if (globalMixerHandle.Value == null)
+			return false;
+
+		Bass.StreamFree((int)globalMixerHandle.Value);
+
+		return false; // skip running the original method
 	}
 }

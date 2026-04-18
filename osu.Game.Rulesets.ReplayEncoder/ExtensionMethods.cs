@@ -1,9 +1,11 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using ManagedBass;
 using osu.Framework.Audio;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Bindables;
+using osu.Framework.Threading;
 using osu.Game.Beatmaps;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
@@ -26,14 +28,14 @@ public static class ExtensionMethods
 	public static bool HasCompleted(this Player player) =>
 		player.GetScoreProcessor().HasCompleted.Value;
 
-	public static int GetGlobalMixerHandle(this AudioManager audio) =>
-		(int)(typeof(AudioManager).GetField("GlobalMixerHandle").GetValue(audio) as IBindable<int?>).Value;
+	public static IBindable<int?> GetGlobalMixerHandle(this AudioManager audio) =>
+		AccessTools.FieldRefAccess<AudioManager, IBindable<int?>>(audio, "GlobalMixerHandle");
 
 	public static int GetBassHandle(this AudioMixer mixer) =>
-		(int)typeof(AudioMixer).Assembly
-			.GetType("osu.Framework.Audio.Mixing.Bass.BassAudioMixer")
-			.GetProperty("Handle")
-			.GetValue(mixer);
+		(int)AccessTools.Property("osu.Framework.Audio.Mixing.Bass.BassAudioMixer:Handle").GetValue(mixer);
+
+	public static Bindable<int?> GetGlobalMixerHandle(this AudioThread thread) =>
+		AccessTools.FieldRefAccess<AudioThread, Bindable<int?>>(thread, "globalMixerHandle");
 
 	public static string ToFfmpegSmpFmt(this Resolution r) =>
 		r switch
