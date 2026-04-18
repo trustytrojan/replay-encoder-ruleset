@@ -114,7 +114,6 @@ namespace osu.Game.Rulesets.ReplayEncoder
         {
             Harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
             Harmony.PatchCategory("StartupPatches");
-            GLRenderer_ExtractFrameBufferData_Patch.Patch(Harmony);
             Task.Run(() =>
             {
                 while (Game == null)
@@ -123,18 +122,18 @@ namespace osu.Game.Rulesets.ReplayEncoder
             });
         }
 
+        // By the time this is called, AudioThread.InitDevice was patched with our postfix.
+        // All we need to do is call AudioManager.initCurrentDevice which calls AudioThread.InitDevice with the current device.
         static void SetGlobalMixer()
         {
-            Console.WriteLine("SetGlobalMixer called");
+            var globalMixerHandle = Game.Audio.GetGlobalMixerHandle();
 
-            if (Game.Audio.UseExperimentalWasapi.Value || Game.Audio.GetGlobalMixerHandle().Value != null)
+            if (Game.Audio.UseExperimentalWasapi.Value || globalMixerHandle.Value != null)
                 return;
-
-            Console.WriteLine("Calling AudioManager.initCurrentDevice");
 
             try
             {
-                // This runs our AudioThread.InitDevice postfix which sets the global mixer.
+                // This conveniently runs our AudioThread.InitDevice postfix which sets the global mixer.
                 AccessTools.Method(typeof(AudioManager), "initCurrentDevice").Invoke(Game.Audio, []);
             }
             catch (Exception ex)
@@ -142,12 +141,9 @@ namespace osu.Game.Rulesets.ReplayEncoder
                 throw new InvalidOperationException("AudioManager.initCurrentDevice", ex);
             }
 
-            Console.WriteLine("AudioManager.initCurrentDevice returned");
-
-            if (Game.Audio.GetGlobalMixerHandle().Value == null)
+            // Sanity check
+            if (globalMixerHandle.Value == null)
                 throw new InvalidOperationException("Global mixer handle was not set by AudioManager.initCurrentDevice");
-
-            Console.WriteLine("AudioManager.GlobalMixerHandle is not null");
         }
     }
 }

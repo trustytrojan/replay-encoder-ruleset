@@ -8,6 +8,7 @@ using osu.Framework.Audio.Track;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Threading;
+using osu.Game.Beatmaps;
 using osu.Game.Screens.Play;
 using osuTK.Graphics.ES30;
 using SixLabors.ImageSharp;
@@ -20,9 +21,20 @@ namespace osu.Game.Rulesets.ReplayEncoder;
 [HarmonyPatchCategory("WhileRecording")]
 static class GameplayClockContainer_StartGameplayClock_Patch
 {
+	// Cache fields for speed, since there's only ever one ReplayPlayer recording at a time
+	static GameplayClockContainer lastInstance;
+	static FramedBeatmapClock lastUnderlyingClock;
+
 	static bool Prefix(GameplayClockContainer __instance)
 	{
-		__instance.GetGameplayClock().Start();
+		if (__instance != lastInstance)
+		{
+			Console.WriteLine("GameplayClockContainer_StartGameplayClock_Patch: new instance");
+			lastUnderlyingClock = __instance.GetGameplayClock();
+			lastInstance = __instance;
+		}
+
+		lastUnderlyingClock.Start();
 		return false;
 	}
 }
@@ -31,9 +43,20 @@ static class GameplayClockContainer_StartGameplayClock_Patch
 [HarmonyPatchCategory("WhileRecording")]
 static class GameplayClockContainer_StopGameplayClock_Patch
 {
+	// Cache fields for speed, since there's only ever one ReplayPlayer recording at a time
+	static GameplayClockContainer lastInstance;
+	static FramedBeatmapClock lastUnderlyingClock;
+
 	static bool Prefix(GameplayClockContainer __instance)
 	{
-		__instance.GetGameplayClock().Stop();
+		if (__instance != lastInstance)
+		{
+			Console.WriteLine("GameplayClockContainer_StopGameplayClock_Patch: new instance");
+			lastUnderlyingClock = __instance.GetGameplayClock();
+			lastInstance = __instance;
+		}
+
+		lastUnderlyingClock.Stop();
 		return false;
 	}
 }
@@ -42,25 +65,36 @@ static class GameplayClockContainer_StopGameplayClock_Patch
 [HarmonyPatchCategory("WhileRecording")]
 static class GameplayClockContainer_Seek_Patch
 {
+	// Cache fields for speed, since there's only ever one ReplayPlayer recording at a time
+	static GameplayClockContainer lastInstance;
+	static FramedBeatmapClock lastUnderlyingClock;
+	static Action OnSeek;
+
 	static bool Prefix(GameplayClockContainer __instance, double time)
 	{
-		__instance.GetGameplayClock().Seek(time);
-		(AccessTools.Event(typeof(GameplayClockContainer), "OnSeek")
-			?? throw new InvalidOperationException("Event GameplayClockContainer.OnSeek not found"))
-			.GetRaiseMethod()?.Invoke(__instance, []);
+		if (__instance != lastInstance)
+		{
+			Console.WriteLine("GameplayClockContainer_Seek_Patch: new instance");
+			lastUnderlyingClock = __instance.GetGameplayClock();
+			OnSeek = AccessTools.MethodDelegate<Action>(
+				method: AccessTools.Event(typeof(GameplayClockContainer), "OnSeek").GetRaiseMethod(),
+				instance: __instance
+			);
+			lastInstance = __instance;
+		}
+
+		lastUnderlyingClock.Seek(time);
+		OnSeek();
+
 		return false;
 	}
 }
 
 // This needs to be manually patched because GLRenderer is an internal type!
+[HarmonyPatch("osu.Framework.Graphics.OpenGL.GLRenderer", "ExtractFrameBufferData")]
+[HarmonyPatchCategory("StartupPatches")]
 public static class GLRenderer_ExtractFrameBufferData_Patch
 {
-	public static void Patch(Harmony harmony) =>
-		harmony.Patch(
-			original: AccessTools.Method("osu.Framework.Graphics.OpenGL.GLRenderer:ExtractFrameBufferData"),
-			prefix: new HarmonyMethod(Prefix)
-		);
-
 	static int[] _pbos;
 	static int _pboIndex = 0;
 	static readonly int _numPbos = 2; // Double buffering
@@ -76,7 +110,7 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 		// 1. Initialize PBOs if not already done or if resolution changed
 		if (!_isPboInitialized || _expectedByteSize != byteSize)
 		{
-			Console.WriteLine("ExtractFrameBufferData: initializing PBOs");
+			Console.WriteLine("GLRenderer_ExtractFrameBufferData_Patch: initializing PBOs");
 			InitializePbos(byteSize);
 		}
 
@@ -163,6 +197,8 @@ static class AudioThread_InitDevice_Patch
 
 		if (!Bass.ChannelPlay((int)globalMixerHandle.Value))
 			throw new InvalidOperationException($"ChannelPlay: {Bass.LastError}");
+
+		Console.WriteLine($"AudioThread_InitDevice_Patch: Global mixer stream created: {globalMixerHandle}");
 	}
 }
 
@@ -202,10 +238,7 @@ static class TrackBass_initializeSyncs_Patch
 	{
 		var handle = AccessTools.FieldRefAccess<TrackBass, int>(__instance, "activeStream");
 
-		if (handle == lastHandle)
-			return;
-
-		if (handle == 0)
+		if (handle == 0 || handle == lastHandle)
 			return;
 
 		ref var stopSync = ref AccessTools.FieldRefAccess<TrackBass, int?>(__instance, "stopSync");
@@ -227,5 +260,7 @@ static class TrackBass_initializeSyncs_Patch
 			throw new InvalidOperationException($"BassMix.ChannelSetSync: {Bass.LastError}");
 
 		lastHandle = handle;
+
+		Console.WriteLine($"TrackBass_initializeSyncs_Patch: replaced syncs for new handle {handle}");
 	}
 }
