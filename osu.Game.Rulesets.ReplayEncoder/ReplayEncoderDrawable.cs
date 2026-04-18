@@ -143,7 +143,12 @@ public partial class ReplayEncoder : CompositeDrawable
 		replayTimeStarted = true;
 		this.player = player;
 		playerClock = player.GetGameplayClockContainer();
-		new Harmony($"{this}#{GetHashCode()}").PatchCategory("WhileRecording");
+
+		// This saves 1-2ms draw time because ReplayPlayerSettings forces itself to be redrawn all the time 🤦‍♂️
+		playerClock.Remove(player.ReplayOverlay, true);
+
+		// Disable the log spam of GameplayClockContainer operations
+		ReplayEncoderRuleset.Harmony.PatchCategory("WhileRecording");
 	}
 
 	public void StartRecording(ScreenStack target)
@@ -232,7 +237,7 @@ public partial class ReplayEncoder : CompositeDrawable
 
 		// Game.OnUpdate -= Update;
 
-		new Harmony($"{this}#{GetHashCode()}").UnpatchCategory("WhileRecording");
+		ReplayEncoderRuleset.Harmony.UnpatchCategory("WhileRecording");
 
 		var audioManager = ReplayEncoderRuleset.Game.Audio;
 		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();

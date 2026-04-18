@@ -3,6 +3,8 @@ using HarmonyLib;
 using ManagedBass;
 using ManagedBass.Mix;
 using ManagedBass.Wasapi;
+using osu.Framework.Audio.Callbacks;
+using osu.Framework.Audio.Track;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Threading;
@@ -186,5 +188,44 @@ static class AudioThread_freeWasapi_Patch
 		Bass.StreamFree((int)globalMixerHandle.Value);
 
 		return false; // skip running the original method
+	}
+}
+
+[HarmonyPatch(typeof(TrackBass), "initializeSyncs")]
+[HarmonyPatchCategory("StartupPatches")]
+static class TrackBass_initializeSyncs_Patch
+{
+	// Because we get called like 8 times per track, just use this to skip the other 7 times
+	static int lastHandle = 0;
+
+	static void Postfix(TrackBass __instance)
+	{
+		var handle = AccessTools.FieldRefAccess<TrackBass, int>(__instance, "activeStream");
+
+		if (handle == lastHandle)
+			return;
+
+		if (handle == 0)
+			return;
+
+		ref var stopSync = ref AccessTools.FieldRefAccess<TrackBass, int?>(__instance, "stopSync");
+		if (stopSync != null && !BassMix.ChannelRemoveSync(handle, (int)stopSync))
+			throw new InvalidOperationException($"BassMix.ChannelRemoveSync: {Bass.LastError}");
+
+		ref var endSync = ref AccessTools.FieldRefAccess<TrackBass, int?>(__instance, "endSync");
+		if (endSync != null && !BassMix.ChannelRemoveSync(handle, (int)endSync))
+			throw new InvalidOperationException($"BassMix.ChannelRemoveSync: {Bass.LastError}");
+
+		var stopCallback = AccessTools.FieldRefAccess<TrackBass, SyncCallback>(__instance, "stopCallback");
+		stopSync = BassMix.ChannelSetSync(handle, SyncFlags.Stop | SyncFlags.Mixtime, 0, stopCallback.Callback, stopCallback.Handle);
+		if (stopSync == 0)
+			throw new InvalidOperationException($"BassMix.ChannelSetSync: {Bass.LastError}");
+
+		var endCallback = AccessTools.FieldRefAccess<TrackBass, SyncCallback>(__instance, "endCallback");
+		endSync = BassMix.ChannelSetSync(handle, SyncFlags.End | SyncFlags.Mixtime, 0, endCallback.Callback, endCallback.Handle);
+		if (endSync == 0)
+			throw new InvalidOperationException($"BassMix.ChannelSetSync: {Bass.LastError}");
+
+		lastHandle = handle;
 	}
 }
