@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -91,27 +92,50 @@ public partial class ReplayEncoder : CompositeDrawable
 	private OsuGame Game { get; set; }
 
 	[Resolved]
-	private FrameworkConfigManager FrameworkConfig { get; set; }
+	public FrameworkConfigManager FrameworkConfig { get; private set; }
 
-	public bool CheckUserSettings()
+	private ExecutionMode originalExecutionMode;
+
+	public void PrepareRecord()
 	{
+		originalExecutionMode = FrameworkConfig.Get<ExecutionMode>(FrameworkSetting.ExecutionMode);
+		FrameworkConfig.SetValue(FrameworkSetting.ExecutionMode, ExecutionMode.SingleThread);
+	}
+
+	public bool CanRecord()
+	{
+		void postErrorNotification(string text)
+		{
+			Game.PostNotification(new SimpleErrorNotification() { Text = $"Replay Encoder: {text}" });
+		}
+
 		// Programatically changing the UI is just impossible...
 		if (Game.Toolbar.State.Value == Visibility.Visible)
 		{
-			Game.PostNotification(new SimpleErrorNotification()
-			{
-				Text = "Toolbar must be hidden first!"
-			});
+			postErrorNotification("Toolbar must be hidden.");
 			return false;
 		}
 
 		// I refuse to deal with this...
 		if (FrameworkConfig.Get<ExecutionMode>(FrameworkSetting.ExecutionMode) == ExecutionMode.MultiThreaded)
 		{
-			Game.PostNotification(new SimpleErrorNotification()
+			postErrorNotification("Threading mode must be single-threaded.");
+			return false;
+		}
+
+		try
+		{
+			if (!FFmpegCliProcess.TestFfmpegArguments("-version"))
 			{
-				Text = "Set threading mode to single-threaded first!"
-			});
+				postErrorNotification("Running `ffmpeg -version` failed.");
+				return false;
+			}
+		}
+		catch (Win32Exception ex)
+		{
+			if (ex.NativeErrorCode != 2) // "File not found" on both Windows & Unix
+				throw;
+			postErrorNotification("System couldn't find ffmpeg. Please install it.");
 			return false;
 		}
 
@@ -239,6 +263,8 @@ public partial class ReplayEncoder : CompositeDrawable
 		ffmpeg = null;
 		score = null;
 
+		FrameworkConfig.SetValue(FrameworkSetting.ExecutionMode, originalExecutionMode);
+
 		// Game.OnUpdate -= Update;
 
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("WhileRecording");
@@ -344,10 +370,14 @@ public partial class ReplayEncoder : CompositeDrawable
 		// transforms should have been finished by StartRecording().
 		if (ffmpeg == null)
 		{
+			var exportPath = Game.GetStorage().GetExportStorage().GetFullPath(".");
+
+			// Taken from LegacyScoreExporter.GetFilename
+			var filename = $"{score.GetDisplayString()} ({score.Date.LocalDateTime:yyyy-MM-dd_HH-mm}).mp4".GetValidFilename();
+
 			ffmpeg = new FFmpegCliProcess
 			{
-				// Taken from LegacyScoreExporter.GetFilename
-				OutputFilePath = $"{score.GetDisplayString()} ({score.Date.LocalDateTime:yyyy-MM-dd_HH-mm}).mp4".GetValidFilename(),
+				OutputFilePath = $"{exportPath}/{filename}",
 				VideoSize = new() { X = image.Width, Y = image.Height },
 				Framerate = fps,
 				Samplerate = samplerate,

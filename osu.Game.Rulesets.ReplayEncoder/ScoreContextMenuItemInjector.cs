@@ -46,7 +46,8 @@ static class ContextMenuItemsPatch
 
 	static void HandleClick(ScoreInfo score)
 	{
-		if (!ReplayEncoderRuleset.ReplayEncoder.CheckUserSettings())
+		ReplayEncoderRuleset.ReplayEncoder.PrepareRecord();
+		if (!ReplayEncoderRuleset.ReplayEncoder.CanRecord())
 			return;
 		ReplayEncoderRuleset.Harmony.PatchCategory("RecordingTrigger");
 		ReplayEncoderRuleset.Game.PresentScore(score, ScorePresentType.Gameplay);

@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using HarmonyLib;
 using ManagedBass;
 using osu.Framework.Audio;
@@ -7,6 +6,7 @@ using osu.Framework.Audio.Mixing;
 using osu.Framework.Bindables;
 using osu.Framework.Threading;
 using osu.Game.Beatmaps;
+using osu.Game.IO;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
 using osu.Game.Rulesets.Scoring;
@@ -16,6 +16,9 @@ namespace osu.Game.Rulesets.ReplayEncoder;
 
 public static class ExtensionMethods
 {
+	public static OsuStorage GetStorage(this OsuGameBase game) =>
+		AccessTools.Property(typeof(OsuGameBase), "Storage").GetValue(game) as OsuStorage;
+
 	public static FramedBeatmapClock GetGameplayClock(this GameplayClockContainer gcc) =>
 		AccessTools.FieldRefAccess<GameplayClockContainer, FramedBeatmapClock>(gcc, "GameplayClock");
 
