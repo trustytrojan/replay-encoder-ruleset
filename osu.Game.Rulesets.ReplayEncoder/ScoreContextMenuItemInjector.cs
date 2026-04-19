@@ -2,11 +2,14 @@ using System;
 using System.Linq;
 using HarmonyLib;
 using osu.Framework.Graphics.UserInterface;
+using osu.Framework.Logging;
+using osu.Framework.Screens;
 using osu.Game.Graphics.UserInterface;
 using osu.Game.Localisation;
 using osu.Game.Scoring;
 using osu.Game.Screens;
 using osu.Game.Screens.Play;
+using osu.Game.Screens.Ranking;
 using osu.Game.Screens.Select;
 
 namespace osu.Game.Rulesets.ReplayEncoder;
@@ -49,8 +52,6 @@ static class ContextMenuItemsPatch
 	}
 }
 
-// PlayerLoader.OnEntering() finishes all of the necessary transitions, which
-// ReplayPlayerLoader calls. We just need to wait for it to finish.
 [HarmonyPatch(typeof(ReplayPlayerLoader), nameof(ReplayPlayerLoader.OnEntering))]
 [HarmonyPatchCategory("RecordingTrigger")]
 static class ReplayPlayerLoader_OnEntering_Patch
@@ -60,5 +61,63 @@ static class ReplayPlayerLoader_OnEntering_Patch
 		Console.WriteLine($"ReplayPlayerLoader_OnEntering_Patch: caught ReplayPlayerLoader#{__instance.GetHashCode()}");
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("RecordingTrigger");
 		ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(__instance);
+	}
+}
+
+[HarmonyPatch(typeof(ReplayPlayer), nameof(ReplayPlayer.OnSuspending))]
+[HarmonyPatchCategory("WhileRecording")]
+static class ReplayPlayer_OnSuspending_Patch
+{
+	static void Prefix(ReplayPlayer __instance, ScreenTransitionEvent e)
+	{
+		if (!__instance.HasCompleted() || e.Next is not ResultsScreen)
+			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+	}
+}
+
+[HarmonyPatch(typeof(ReplayPlayer), nameof(ReplayPlayer.OnExiting))]
+[HarmonyPatchCategory("WhileRecording")]
+static class ReplayPlayer_OnExiting_Patch
+{
+	static void Prefix(ReplayPlayer __instance, ScreenExitEvent e)
+	{
+		if (!__instance.HasCompleted() || e.Destination is not ResultsScreen)
+			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+	}
+}
+
+// Stop recording 4 simulated seconds after showing the advanced statistics of the score in the results screen.
+// Override OnEntering within SoloResultsScreen.
+[HarmonyPatch(typeof(ResultsScreen), nameof(ResultsScreen.OnEntering))]
+[HarmonyPatchCategory("WhileRecording")]
+static class ResultsScreen_OnEntering_Patch
+{
+	// Use a postfix, because all that needs to happen before we run is `base.OnEntering()`.
+	static void Postfix(ResultsScreen __instance)
+	{
+		if (__instance is not SoloResultsScreen srs)
+			return;
+
+		if (!ReplayEncoderRuleset.ReplayEncoder.Recording)
+			return;
+
+		if (srs.Score == null)
+		{
+			Logger.Log("wtf?", level: LogLevel.Error);
+			return;
+		}
+
+		var scorePanelList = AccessTools.Property(typeof(ResultsScreen), "ScorePanelList").GetValue(srs) as ScorePanelList;
+		var panel = scorePanelList.GetPanelForScore(srs.Score);
+
+		// one-time event handler
+		void callback(PanelState panelState)
+		{
+			if (panelState == PanelState.Expanded)
+				panel.TriggerClick();
+			ReplayEncoderRuleset.ReplayEncoder.CaptureInvokeActionIn(ReplayEncoderRuleset.ReplayEncoder.StopRecording, 4_000);
+			panel.StateChanged -= callback;
+		}
+		panel.StateChanged += callback;
 	}
 }
