@@ -1,11 +1,13 @@
 using System;
 using System.Linq;
 using HarmonyLib;
+using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
 using osu.Game.Graphics.UserInterface;
 using osu.Game.Localisation;
+using osu.Game.Overlays.Toolbar;
 using osu.Game.Scoring;
 using osu.Game.Screens;
 using osu.Game.Screens.Play;
@@ -144,5 +146,17 @@ static class ResultsScreen_OnEntering_Patch
 			panel.StateChanged -= callback;
 		}
 		panel.StateChanged += callback;
+	}
+}
+
+[HarmonyPatch(typeof(VisibilityContainer), nameof(VisibilityContainer.ToggleVisibility))]
+[HarmonyPatchCategory("WhileRecording")]
+static class VisibilityContainer_ToggleVisibility_Patch
+{
+	static bool Prefix(VisibilityContainer __instance)
+	{
+		// true lets the original method run, false does not.
+		// let the original method run if __instance is not a Toolbar.
+		return __instance is not Toolbar;
 	}
 }

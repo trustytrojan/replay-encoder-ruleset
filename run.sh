@@ -15,6 +15,5 @@ cp osu.Game.Rulesets.ReplayEncoder/bin/Release/net8.0/osu.Game.Rulesets.ReplayEn
 	tail -f $OSU_PATH/logs/*.runtime.log & echo $! >/tmp/tail_pid
 } &
 trap 'kill "$(</tmp/tail_pid)"' SIGINT
-clear
 osu-lazer
 wait
