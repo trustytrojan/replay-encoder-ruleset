@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+using System;
 using System.Linq;
 using HarmonyLib;
 using osu.Framework.Graphics.UserInterface;
@@ -24,7 +24,7 @@ static class ContextMenuItemsPatch
 		if (__result.Any(item => item.Text.Value == "Render to video"))
 			return;
 
-		var items = new List<MenuItem>(__result);
+		var items = __result.ToList();
 
 		// Find where to insert - after Export but before Delete, or at the end  
 		int insertIndex = items.FindIndex(item => item.Text.Value == SongSelectStrings.WatchReplay);
@@ -57,6 +57,7 @@ static class ReplayPlayerLoader_OnEntering_Patch
 {
 	static void Postfix(ReplayPlayerLoader __instance)
 	{
+		Console.WriteLine($"ReplayPlayerLoader_OnEntering_Patch: caught ReplayPlayerLoader#{__instance.GetHashCode()}");
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("RecordingTrigger");
 		ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(__instance);
 	}

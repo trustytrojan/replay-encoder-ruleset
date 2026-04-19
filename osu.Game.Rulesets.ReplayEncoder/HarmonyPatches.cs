@@ -68,24 +68,19 @@ static class GameplayClockContainer_Seek_Patch
 	// Cache fields for speed, since there's only ever one ReplayPlayer recording at a time
 	static GameplayClockContainer lastInstance;
 	static FramedBeatmapClock lastUnderlyingClock;
-	static Action OnSeek;
 
+	// In 2026.408.0 source, GameplayClockContainer.OnSeek never had methods added to it,
+	// so don't bother calling it here.
 	static bool Prefix(GameplayClockContainer __instance, double time)
 	{
 		if (__instance != lastInstance)
 		{
 			Console.WriteLine("GameplayClockContainer_Seek_Patch: new instance");
 			lastUnderlyingClock = __instance.GetGameplayClock();
-			OnSeek = AccessTools.MethodDelegate<Action>(
-				method: AccessTools.Event(typeof(GameplayClockContainer), "OnSeek").GetRaiseMethod(),
-				instance: __instance
-			);
 			lastInstance = __instance;
 		}
 
 		lastUnderlyingClock.Seek(time);
-		OnSeek();
-
 		return false;
 	}
 }

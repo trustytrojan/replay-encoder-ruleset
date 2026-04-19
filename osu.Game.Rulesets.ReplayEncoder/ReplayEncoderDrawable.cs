@@ -2,12 +2,10 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using HarmonyLib;
 using ManagedBass;
 using ManagedBass.Mix;
 using osu.Framework.Allocation;
 using osu.Framework.Configuration;
-using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
@@ -159,7 +157,6 @@ public partial class ReplayEncoder : CompositeDrawable
 
 		replayTimeStarted = false;
 		replayTime = 0;
-		ScreenStackTimeSource.CurrentTime = 0;
 		Recording = true;
 
 		ffmpeg?.Dispose();
@@ -168,6 +165,7 @@ public partial class ReplayEncoder : CompositeDrawable
 
 		// this.CaptureScreenStack = stack;
 		originalStackClock = target.Clock;
+		ScreenStackTimeSource.CurrentTime = target.Clock.CurrentTime; // this is the bug killer...
 		target.Clock = new MyClock(ScreenStackTimeSource);
 
 		// Create our own mixer to combine TrackMixer and SampleMixer
@@ -262,19 +260,19 @@ public partial class ReplayEncoder : CompositeDrawable
 
 	protected override void Update()
 	{
-		// base.Update();
+		// No need to call base.Update, because there's nothing to update up there.
 
 		if (!Recording || currentlyCapturing)
 			return;
 
 		// TODO: ffmpeg can be inited here using ScheduleAfterChildren()
 
-		if (screenshotter?.Target.Clock != null)
-		{
-			if (actionWhenSimulatedTimeReached != null && ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
-				actionWhenSimulatedTimeReached();
-			ScreenStackTimeSource.CurrentTime += frame_time_ms;
-		}
+		// It literally doesn't make sense for the screenshotter or its target's clock to be null at this point.
+		Debug.Assert(screenshotter?.Target.Clock != null);
+
+		if (actionWhenSimulatedTimeReached != null && ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
+			actionWhenSimulatedTimeReached();
+		ScreenStackTimeSource.CurrentTime += frame_time_ms;
 
 		// The player was started at the end of OnImageReceived(),
 		// giving BASS a lot of time to render audio, so we can record
