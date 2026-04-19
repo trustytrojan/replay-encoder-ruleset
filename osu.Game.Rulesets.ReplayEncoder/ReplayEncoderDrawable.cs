@@ -11,7 +11,9 @@ using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osu.Framework.Screens;
 using osu.Framework.Timing;
+using osu.Game.Extensions;
 using osu.Game.Overlays.Notifications;
+using osu.Game.Scoring;
 using osu.Game.Screens.Play;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -116,11 +118,14 @@ public partial class ReplayEncoder : CompositeDrawable
 		return true;
 	}
 
+	private ScoreInfo score;
+
 	public void ReceiveReplayPlayerLoader(ReplayPlayerLoader rpl)
 	{
 		if (Recording)
 			return;
 		StartRecording(Game.ScreenStack);
+		score = rpl.Score;
 
 		// Only set the replay clock when the ReplayPlayer has loaded
 		Action waitForNonNullPlayerThenStart = null;
@@ -144,13 +149,13 @@ public partial class ReplayEncoder : CompositeDrawable
 
 		// This saves 1-2ms draw time because ReplayPlayerSettings forces itself to be redrawn all the time 🤦‍♂️
 		playerClock.Remove(player.ReplayOverlay, true);
-
-		// Disable the log spam of GameplayClockContainer operations
-		ReplayEncoderRuleset.Harmony.PatchCategory("WhileRecording");
 	}
 
 	public void StartRecording(ScreenStack target)
 	{
+		// Disable the log spam of GameplayClockContainer operations
+		ReplayEncoderRuleset.Harmony.PatchCategory("WhileRecording");
+
 		// This allows for a 10-fold speed increase over image.CreateReadOnlyPixelSpan()!
 		// See FFmpegCliProcess.WriteFrame().
 		SixLabors.ImageSharp.Configuration.Default.PreferContiguousImageBuffers = true;
@@ -232,6 +237,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		// Game.Remove(screenshotter, true);
 		ffmpeg?.Dispose();
 		ffmpeg = null;
+		score = null;
 
 		// Game.OnUpdate -= Update;
 
@@ -340,7 +346,8 @@ public partial class ReplayEncoder : CompositeDrawable
 		{
 			ffmpeg = new FFmpegCliProcess
 			{
-				OutputFilePath = "out.mp4",
+				// Taken from LegacyScoreExporter.GetFilename
+				OutputFilePath = $"{score.GetDisplayString()} ({score.Date.LocalDateTime:yyyy-MM-dd_HH-mm}).mp4".GetValidFilename(),
 				VideoSize = new() { X = image.Width, Y = image.Height },
 				Framerate = fps,
 				Samplerate = samplerate,

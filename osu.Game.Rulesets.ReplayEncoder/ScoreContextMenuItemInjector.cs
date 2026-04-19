@@ -46,7 +46,6 @@ static class ContextMenuItemsPatch
 	{
 		if (!ReplayEncoderRuleset.ReplayEncoder.CheckUserSettings())
 			return;
-
 		ReplayEncoderRuleset.Harmony.PatchCategory("RecordingTrigger");
 		ReplayEncoderRuleset.Game.PresentScore(score, ScorePresentType.Gameplay);
 	}
@@ -61,6 +60,32 @@ static class ReplayPlayerLoader_OnEntering_Patch
 		Console.WriteLine($"ReplayPlayerLoader_OnEntering_Patch: caught ReplayPlayerLoader#{__instance.GetHashCode()}");
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("RecordingTrigger");
 		ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(__instance);
+	}
+}
+
+[HarmonyPatch(typeof(PlayerLoader), nameof(PlayerLoader.OnSuspending))]
+[HarmonyPatchCategory("WhileRecording")]
+static class PlayerLoader_OnSuspending_Patch
+{
+	static void Postfix(PlayerLoader __instance, ScreenTransitionEvent e)
+	{
+		if (__instance is not ReplayPlayerLoader)
+			return;
+		if (e.Next is not ReplayPlayer)
+			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+	}
+}
+
+[HarmonyPatch(typeof(PlayerLoader), nameof(PlayerLoader.OnExiting))]
+[HarmonyPatchCategory("WhileRecording")]
+static class PlayerLoader_OnExiting_Patch
+{
+	static void Prefix(PlayerLoader __instance, ScreenExitEvent e)
+	{
+		if (__instance is not ReplayPlayerLoader)
+			return;
+		if (e.Destination is not ReplayPlayer)
+			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
 	}
 }
 

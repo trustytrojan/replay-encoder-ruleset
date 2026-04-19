@@ -37,12 +37,15 @@ public sealed class FFmpegCliProcess : IDisposable
         string extraArgs = "";
 
         // Try to use hardware acceleration codecs
-        if (TestH264Qsv())
+        if (TestH264Nvenc())
+        {
+            videoCodec = "h264_nvenc";
+        }
+        else if (TestH264Qsv())
         {
             videoCodec = "h264_qsv";
         }
-
-        if (OperatingSystem.IsLinux())
+        else if (OperatingSystem.IsLinux())
         {
             // VA-API is only on Linux
             string vaapiDevice = DetectVaapiDevice();
@@ -201,6 +204,11 @@ public sealed class FFmpegCliProcess : IDisposable
     public static bool TestH264Qsv()
     {
         return TestFfmpegArguments("-v warning -f lavfi -i testsrc=1280x720:d=1 -c:v h264_qsv -f null -");
+    }
+
+    public static bool TestH264Nvenc()
+    {
+        return TestFfmpegArguments("-v warning -f lavfi -i testsrc=1280x720:d=1 -c:v h264_nvenc -f null -");
     }
 
     public static string DetectVaapiDevice()
