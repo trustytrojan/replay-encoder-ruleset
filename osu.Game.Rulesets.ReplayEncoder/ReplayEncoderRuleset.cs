@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using AutoMapper.Internal;
+﻿using System.Collections.Generic;
 using HarmonyLib;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
@@ -13,24 +6,16 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Bindings;
-using osu.Framework.Threading;
 using osu.Game.Beatmaps;
 using osu.Game.Graphics;
-using osu.Game.Graphics.Containers;
 using osu.Game.Rulesets.Difficulty;
 using osu.Game.Rulesets.ReplayEncoder.Beatmaps;
 using osu.Game.Rulesets.ReplayEncoder.Mods;
 using osu.Game.Rulesets.ReplayEncoder.UI;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.UI;
-using osu.Game.Screens;
-using osu.Game.Screens.Footer;
 using osuTK;
 using osuTK.Graphics;
-using osu.Game.Screens.Select;
-using System.Reflection;
-using osu.Framework.Audio;
-using osu.Framework.Extensions.ObjectExtensions;
 
 namespace osu.Game.Rulesets.ReplayEncoder
 {
@@ -114,36 +99,6 @@ namespace osu.Game.Rulesets.ReplayEncoder
         {
             Harmony = new Harmony($"{nameof(ReplayEncoderRuleset)}#{GetHashCode()}");
             Harmony.PatchCategory("StartupPatches");
-            Task.Run(() =>
-            {
-                while (Game == null)
-                    Thread.Sleep(1_000);
-                SetGlobalMixer();
-            });
-        }
-
-        // By the time this is called, AudioThread.InitDevice was patched with our postfix.
-        // All we need to do is call AudioManager.initCurrentDevice which calls AudioThread.InitDevice with the current device.
-        static void SetGlobalMixer()
-        {
-            var globalMixerHandle = Game.Audio.GetGlobalMixerHandle();
-
-            if (Game.Audio.UseExperimentalWasapi.Value || globalMixerHandle.Value != null)
-                return;
-
-            try
-            {
-                // This conveniently runs our AudioThread.InitDevice postfix which sets the global mixer.
-                AccessTools.Method(typeof(AudioManager), "initCurrentDevice").Invoke(Game.Audio, []);
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("AudioManager.initCurrentDevice", ex);
-            }
-
-            // Sanity check
-            if (globalMixerHandle.Value == null)
-                throw new InvalidOperationException("Global mixer handle was not set by AudioManager.initCurrentDevice");
         }
     }
 }

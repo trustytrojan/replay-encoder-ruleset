@@ -66,15 +66,15 @@ static class ReplayPlayerLoader_OnEntering_Patch
 	}
 }
 
+#region Exit handlers
+
 [HarmonyPatch(typeof(PlayerLoader), nameof(PlayerLoader.OnSuspending))]
 [HarmonyPatchCategory("WhileRecording")]
 static class PlayerLoader_OnSuspending_Patch
 {
 	static void Postfix(PlayerLoader __instance, ScreenTransitionEvent e)
 	{
-		if (__instance is not ReplayPlayerLoader)
-			return;
-		if (e.Next is not ReplayPlayer)
+		if (__instance is ReplayPlayerLoader && e.Next is not ReplayPlayer)
 			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
 	}
 }
@@ -85,9 +85,7 @@ static class PlayerLoader_OnExiting_Patch
 {
 	static void Prefix(PlayerLoader __instance, ScreenExitEvent e)
 	{
-		if (__instance is not ReplayPlayerLoader)
-			return;
-		if (e.Destination is not ReplayPlayer)
+		if (__instance is ReplayPlayerLoader && e.Destination is not ReplayPlayer)
 			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
 	}
 }
@@ -114,8 +112,9 @@ static class ReplayPlayer_OnExiting_Patch
 	}
 }
 
+#endregion
+
 // Stop recording 4 simulated seconds after showing the advanced statistics of the score in the results screen.
-// Override OnEntering within SoloResultsScreen.
 [HarmonyPatch(typeof(ResultsScreen), nameof(ResultsScreen.OnEntering))]
 [HarmonyPatchCategory("WhileRecording")]
 static class ResultsScreen_OnEntering_Patch
@@ -150,6 +149,9 @@ static class ResultsScreen_OnEntering_Patch
 	}
 }
 
+// Maybe postfix SoloResultsScreen.OnExiting to call MusicController.Play?
+
+// Prevent the toolbar from being shown while recording.
 [HarmonyPatch(typeof(VisibilityContainer), nameof(VisibilityContainer.ToggleVisibility))]
 [HarmonyPatchCategory("WhileRecording")]
 static class VisibilityContainer_ToggleVisibility_Patch

@@ -1,11 +1,5 @@
 using System;
 using HarmonyLib;
-using ManagedBass;
-using ManagedBass.Mix;
-using ManagedBass.Wasapi;
-using osu.Framework.Audio.Callbacks;
-using osu.Framework.Audio.Track;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Threading;
 using osu.Game.Beatmaps;
@@ -170,92 +164,12 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 	}
 }
 
-[HarmonyPatch(typeof(AudioThread), "InitDevice")]
-[HarmonyPatchCategory("StartupPatches")]
-static class AudioThread_InitDevice_Patch
-{
-	static void Postfix(AudioThread __instance, bool useExperimentalWasapi)
-	{
-		if (useExperimentalWasapi)
-			// Global mixer is already setup
-			return;
-
-		var globalMixerHandle = AccessTools.FieldRefAccess<AudioThread, Bindable<int?>>(__instance, "globalMixerHandle");
-
-		if (globalMixerHandle.Value != null)
-			return;
-
-		globalMixerHandle.Value = BassMix.CreateMixerStream(44100, 2, BassFlags.MixerNonStop);
-
-		if (globalMixerHandle.Value == 0)
-			throw new InvalidOperationException($"CreateMixerStream: {Bass.LastError}");
-
-		if (!Bass.ChannelPlay((int)globalMixerHandle.Value))
-			throw new InvalidOperationException($"ChannelPlay: {Bass.LastError}");
-
-		Console.WriteLine($"AudioThread_InitDevice_Patch: Global mixer stream created: {globalMixerHandle}");
-	}
-}
-
 [HarmonyPatch(typeof(AudioThread), "freeWasapi")]
-[HarmonyPatchCategory("StartupPatches")]
+[HarmonyPatchCategory("FakeGlobalMixerHandle")]
 static class AudioThread_freeWasapi_Patch
 {
-	static bool Prefix(AudioThread __instance)
-	{
-		// We can check whether this is non-null to see if WASAPI was initialized.
-		var wasapiProcedure = AccessTools.FieldRefAccess<AudioThread, WasapiProcedure>(__instance, "wasapiProcedure");
-
-		if (wasapiProcedure != null)
-			// WASAPI was initialized. Let the original method run.
-			return true;
-
-		// WASAPI was not initialized. We need to free our stream.
-		var globalMixerHandle = AccessTools.FieldRefAccess<AudioThread, Bindable<int?>>(__instance, "globalMixerHandle");
-
-		if (globalMixerHandle.Value == null)
-			return false;
-
-		Bass.StreamFree((int)globalMixerHandle.Value);
-
-		return false; // skip running the original method
-	}
-}
-
-[HarmonyPatch(typeof(TrackBass), "initializeSyncs")]
-[HarmonyPatchCategory("StartupPatches")]
-static class TrackBass_initializeSyncs_Patch
-{
-	// Because we get called like 8 times per track, just use this to skip the other 7 times
-	static int lastHandle = 0;
-
-	static void Postfix(TrackBass __instance)
-	{
-		var handle = AccessTools.FieldRefAccess<TrackBass, int>(__instance, "activeStream");
-
-		if (handle == 0 || handle == lastHandle)
-			return;
-
-		ref var stopSync = ref AccessTools.FieldRefAccess<TrackBass, int?>(__instance, "stopSync");
-		if (stopSync != null && !BassMix.ChannelRemoveSync(handle, (int)stopSync))
-			throw new InvalidOperationException($"BassMix.ChannelRemoveSync: {Bass.LastError}");
-
-		ref var endSync = ref AccessTools.FieldRefAccess<TrackBass, int?>(__instance, "endSync");
-		if (endSync != null && !BassMix.ChannelRemoveSync(handle, (int)endSync))
-			throw new InvalidOperationException($"BassMix.ChannelRemoveSync: {Bass.LastError}");
-
-		var stopCallback = AccessTools.FieldRefAccess<TrackBass, SyncCallback>(__instance, "stopCallback");
-		stopSync = BassMix.ChannelSetSync(handle, SyncFlags.Stop | SyncFlags.Mixtime, 0, stopCallback.Callback, stopCallback.Handle);
-		if (stopSync == 0)
-			throw new InvalidOperationException($"BassMix.ChannelSetSync: {Bass.LastError}");
-
-		var endCallback = AccessTools.FieldRefAccess<TrackBass, SyncCallback>(__instance, "endCallback");
-		endSync = BassMix.ChannelSetSync(handle, SyncFlags.End | SyncFlags.Mixtime, 0, endCallback.Callback, endCallback.Handle);
-		if (endSync == 0)
-			throw new InvalidOperationException($"BassMix.ChannelSetSync: {Bass.LastError}");
-
-		lastHandle = handle;
-
-		Console.WriteLine($"TrackBass_initializeSyncs_Patch: replaced syncs for new handle {handle}");
-	}
+	// When this patch is active, we are calling AudioManager.initCurrentDevice
+	// which eventually calls AudioThread.freeWasapi unnecessarily.
+	// Completely disable it so the game doesn't crash itself.
+	static bool Prefix(AudioThread __instance) => false;
 }

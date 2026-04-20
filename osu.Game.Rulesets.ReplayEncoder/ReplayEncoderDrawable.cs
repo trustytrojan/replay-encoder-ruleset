@@ -3,9 +3,11 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using HarmonyLib;
 using ManagedBass;
 using ManagedBass.Mix;
 using osu.Framework.Allocation;
+using osu.Framework.Audio;
 using osu.Framework.Configuration;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
@@ -13,6 +15,7 @@ using osu.Framework.Platform;
 using osu.Framework.Screens;
 using osu.Framework.Timing;
 using osu.Game.Extensions;
+using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
 using osu.Game.Scoring;
 using osu.Game.Screens.Play;
@@ -89,10 +92,13 @@ public partial class ReplayEncoder : CompositeDrawable
 	private readonly StatisticTimer extractTime = new(), captureTime = new(), audioTime = new(), updateChildrenTime = new();
 
 	[Resolved]
-	private OsuGame Game { get; set; }
+	public OsuGame Game { get; private set; }
 
 	[Resolved]
 	public FrameworkConfigManager FrameworkConfig { get; private set; }
+
+	[Resolved]
+	public MusicController Music { get; private set; }
 
 	private ExecutionMode originalExecutionMode;
 
@@ -156,10 +162,16 @@ public partial class ReplayEncoder : CompositeDrawable
 		Schedule(waitForNonNullPlayerThenStart = () =>
 		{
 			var player = rpl.CurrentPlayer;
-			if (player == null || !player.IsCurrentScreen())
+
+			if (player == null)
+			{
 				Schedule(waitForNonNullPlayerThenStart);
-			else
-				StartReplayTime((ReplayPlayer)player);
+				return;
+			}
+
+			// THIS prevents the "Clock failure" exception because we let Player.StartGameplay
+			// be the one that starts the clock. Then we can take over.
+			player.OnGameplayStarted += () => StartReplayTime((ReplayPlayer)player);
 		});
 	}
 
@@ -206,23 +218,40 @@ public partial class ReplayEncoder : CompositeDrawable
 		if (Bass.ChannelGetInfo(myMixerHandle, out ChannelInfo info))
 			resolution = info.Resolution;
 		else
-			throw new InvalidOperationException($"BASS error: {Bass.LastError}");
+			throw new InvalidOperationException($"ChannelGetInfo: {Bass.LastError}");
 
-		var audioManager = ReplayEncoderRuleset.Game.Audio;
-		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
-		int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
+		// Handle the mixers based on whether the WASAPI setting is enabled.
+		if (Game.Audio.UseExperimentalWasapi.Value)
+		{
+			int trackMixerHandle = Game.Audio.TrackMixer.GetBassHandle();
+			int sampleMixerHandle = Game.Audio.SampleMixer.GetBassHandle();
 
-		// Remove mixers from global mixer
-		if (!BassMix.MixerRemoveChannel(trackMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-		if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+			// The track & sample mixers are already decode mixers attached to the global mixer.
+			// Remove them from the global mixer then add them to our mixer.
 
-		// Add mixers to my mixer
-		if (!BassMix.MixerAddChannel(myMixerHandle, trackMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-		if (!BassMix.MixerAddChannel(myMixerHandle, sampleMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+			if (!BassMix.MixerRemoveChannel(trackMixerHandle))
+				throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+			if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
+				throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+
+			if (!BassMix.MixerAddChannel(myMixerHandle, trackMixerHandle, 0))
+				throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+			if (!BassMix.MixerAddChannel(myMixerHandle, sampleMixerHandle, 0))
+				throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+		}
+		else
+		{
+			// We need to recreate the track & sample mixers as decode mixers,
+			// but this only happens when the global mixer handle is non-null.
+
+			// Pretend that the global mixer exists by setting it to our mixer!
+			Game.Audio.GetGlobalMixerHandle().Value = myMixerHandle;
+
+			// This will recreate the track & sample mixers as decode mixers, and then add them to our mixer.
+			ReplayEncoderRuleset.Harmony.PatchCategory("FakeGlobalMixerHandle");
+			AccessTools.Method(typeof(AudioManager), "initCurrentDevice").Invoke(Game.Audio, []);
+			ReplayEncoderRuleset.Harmony.UnpatchCategory("FakeGlobalMixerHandle");
+		}
 
 		Task.Run(() =>
 		{
@@ -240,10 +269,7 @@ public partial class ReplayEncoder : CompositeDrawable
 			OnExtractBegin = extractTime.Begin,
 			OnExtractEnd = extractTime.End
 		};
-		// Game.Add(screenshotter);
 		AddInternal(screenshotter);
-
-		// Game.OnUpdate += Update;
 
 		Logger.Log("Started rendering replay.", level: LogLevel.Important);
 	}
@@ -256,37 +282,44 @@ public partial class ReplayEncoder : CompositeDrawable
 		player = null;
 		replayTimeStarted = false;
 		screenshotter.Target.Clock = originalStackClock;
-		// ScreenStackClock = null;
 		RemoveInternal(screenshotter, true);
-		// Game.Remove(screenshotter, true);
 		ffmpeg?.Dispose();
 		ffmpeg = null;
 		score = null;
 
 		FrameworkConfig.SetValue(FrameworkSetting.ExecutionMode, originalExecutionMode);
 
-		// Game.OnUpdate -= Update;
+		// Reverse the operations we did in StartRecording.
+		if (Game.Audio.UseExperimentalWasapi.Value)
+		{
+			int trackMixerHandle = Game.Audio.TrackMixer.GetBassHandle();
+			int sampleMixerHandle = Game.Audio.SampleMixer.GetBassHandle();
+			int globalMixerHandle = Game.Audio.GetGlobalMixerHandle().Value
+				?? throw new InvalidOperationException("WASAPI is enabled, but global mixer handle is null");
+
+			if (!BassMix.MixerRemoveChannel(trackMixerHandle))
+				throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+			if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
+				throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
+
+			if (!BassMix.MixerAddChannel(globalMixerHandle, trackMixerHandle, 0))
+				throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+			if (!BassMix.MixerAddChannel(globalMixerHandle, sampleMixerHandle, 0))
+				throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
+		}
+		else
+		{
+			Game.Audio.GetGlobalMixerHandle().Value = null;
+			AccessTools.Method(typeof(AudioManager), "initCurrentDevice").Invoke(Game.Audio, []);
+		}
+
+		if (myMixerHandle != 0)
+		{
+			Bass.StreamFree(myMixerHandle);
+			myMixerHandle = 0;
+		}
 
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("WhileRecording");
-
-		var audioManager = ReplayEncoderRuleset.Game.Audio;
-		int trackMixerHandle = audioManager.TrackMixer.GetBassHandle();
-		int sampleMixerHandle = audioManager.SampleMixer.GetBassHandle();
-		int globalMixerHandle = audioManager.GetGlobalMixerHandle().Value
-			?? throw new InvalidOperationException("Global mixer handle is null");
-
-		// Remove mixers from my mixer
-		if (!BassMix.MixerRemoveChannel(trackMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-		if (!BassMix.MixerRemoveChannel(sampleMixerHandle))
-			throw new InvalidOperationException($"MixerRemoveChannel: ${Bass.LastError}");
-
-		// Add mixers back to global mixer
-		if (!BassMix.MixerAddChannel(globalMixerHandle, trackMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-		if (!BassMix.MixerAddChannel(globalMixerHandle, sampleMixerHandle, 0))
-			throw new InvalidOperationException($"MixerAddChannel: ${Bass.LastError}");
-
 		Logger.Log("Stopped rendering replay.", level: LogLevel.Important);
 	}
 

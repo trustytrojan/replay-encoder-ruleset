@@ -31,14 +31,11 @@ public static class ExtensionMethods
 	public static bool HasCompleted(this Player player) =>
 		player.GetScoreProcessor().HasCompleted.Value;
 
-	public static IBindable<int?> GetGlobalMixerHandle(this AudioManager audio) =>
-		AccessTools.FieldRefAccess<AudioManager, IBindable<int?>>(audio, "GlobalMixerHandle");
+	public static Bindable<int?> GetGlobalMixerHandle(this AudioManager audio) =>
+		AccessTools.FieldRefAccess<AudioManager, IBindable<int?>>(audio, "GlobalMixerHandle") as Bindable<int?>;
 
 	public static int GetBassHandle(this AudioMixer mixer) =>
 		(int)AccessTools.Property("osu.Framework.Audio.Mixing.Bass.BassAudioMixer:Handle").GetValue(mixer);
-
-	public static Bindable<int?> GetGlobalMixerHandle(this AudioThread thread) =>
-		AccessTools.FieldRefAccess<AudioThread, Bindable<int?>>(thread, "globalMixerHandle");
 
 	public static string ToFfmpegSmpFmt(this Resolution r) =>
 		r switch
