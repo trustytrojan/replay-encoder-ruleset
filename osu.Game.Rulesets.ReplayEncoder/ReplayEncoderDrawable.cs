@@ -54,7 +54,7 @@ public partial class ReplayEncoder : CompositeDrawable
 	private const double frame_time_ms = 1000.0 / fps;
 	// protected CapturableOsuScreenStack CaptureScreenStack;
 	private ScreenStackScreenshotter screenshotter;
-	private IFrameBasedClock originalStackClock;
+	private ThrottledFrameClock originalStackClock;
 	private double simulatedTimeToInvokeAction;
 	private Action actionWhenSimulatedTimeReached;
 
@@ -204,8 +204,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		ffmpeg = null;
 		currentlyCapturing = false;
 
-		// this.CaptureScreenStack = stack;
-		originalStackClock = target.Clock;
+		originalStackClock = (ThrottledFrameClock)target.Clock;
 		ScreenStackTimeSource.CurrentTime = target.Clock.CurrentTime; // this is the bug killer...
 		target.Clock = new MyClock(ScreenStackTimeSource);
 
@@ -281,7 +280,18 @@ public partial class ReplayEncoder : CompositeDrawable
 		Recording = false;
 		player = null;
 		replayTimeStarted = false;
-		screenshotter.Target.Clock = originalStackClock;
+
+		// This fixes the "slow motion" you see when going back to song select after recording ends.
+		// The ThrottledFrameClock sitting in memory was still counting... which caused it's
+		// accumulated sleep time/error to rise way too high... and we used to just shove it back into the ScreenStack,
+		// causing the entire scene graph to have throttled updates...
+		// The solution? Throw it out and make a new one.
+		var tfc = AccessTools.CreateInstance<ThrottledFrameClock>();
+		tfc.MaximumUpdateHz = originalStackClock.MaximumUpdateHz;
+		tfc.Throttling = originalStackClock.Throttling;
+		originalStackClock = null;
+		screenshotter.Target.Clock = tfc;
+
 		RemoveInternal(screenshotter, true);
 		ffmpeg?.Dispose();
 		ffmpeg = null;
