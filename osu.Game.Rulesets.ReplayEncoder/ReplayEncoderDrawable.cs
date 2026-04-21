@@ -24,6 +24,8 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Game.Rulesets.ReplayEncoder;
 
+// It's not at all required to be in the game's scene graph, but the dependency caching system is convenient.
+// And we might as well be a CompositeDrawable to own the screenshotter.
 public partial class ReplayEncoder : CompositeDrawable
 {
 	public class MyClock(IClock source) : FramedClock(source, false), IAdjustableClock

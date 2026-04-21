@@ -32,17 +32,12 @@ namespace osu.Game.Rulesets.ReplayEncoder
         public override DifficultyCalculator CreateDifficultyCalculator(IWorkingBeatmap beatmap) =>
             new ReplayEncoderDifficultyCalculator(RulesetInfo, beatmap);
 
-        public override IEnumerable<Mod> GetModsFor(ModType type)
-        {
-            switch (type)
+        public override IEnumerable<Mod> GetModsFor(ModType type) =>
+            type switch
             {
-                case ModType.Automation:
-                    return [new ReplayEncoderModAutoplay()];
-
-                default:
-                    return [];
-            }
-        }
+                ModType.Automation => [new ReplayEncoderModAutoplay()],
+                _ => [],
+            };
 
         public override string ShortName => "Replay Encoder";
 
