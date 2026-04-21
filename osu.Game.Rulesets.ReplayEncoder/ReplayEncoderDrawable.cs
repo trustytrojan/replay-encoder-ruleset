@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
@@ -17,6 +19,7 @@ using osu.Framework.Timing;
 using osu.Game.Extensions;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
+using osu.Game.Rulesets.Mods;
 using osu.Game.Scoring;
 using osu.Game.Screens.Play;
 using SixLabors.ImageSharp;
@@ -49,14 +52,11 @@ public partial class ReplayEncoder : CompositeDrawable
 		IsRunning = true,
 		Rate = 1,
 	};
-	// public IFrameBasedClock ScreenStackClock = null;
 	private FFmpegCliProcess ffmpeg;
 	public bool Recording { get; private set; } = false;
 	private const int fps = 60;
-	private const double frame_time_ms = 1000.0 / fps;
-	// protected CapturableOsuScreenStack CaptureScreenStack;
 	private ScreenStackScreenshotter screenshotter;
-	private IFrameBasedClock originalStackClock;
+	private ThrottledFrameClock originalStackClock;
 	private double simulatedTimeToInvokeAction;
 	private Action actionWhenSimulatedTimeReached;
 
@@ -177,6 +177,8 @@ public partial class ReplayEncoder : CompositeDrawable
 		});
 	}
 
+	private IEnumerable<IApplicableToRate> rateMods;
+
 	// We just count with a double, because Player.GameplayClockContainer actually controls
 	// the beatmap's Track... so all we need to do is Seek() to our simulated time!
 	protected void StartReplayTime(ReplayPlayer player)
@@ -185,8 +187,19 @@ public partial class ReplayEncoder : CompositeDrawable
 		this.player = player;
 		playerClock = player.GetGameplayClockContainer();
 
+		rateMods = player.GameplayState.Mods.OfType<IApplicableToRate>();
+
 		// This saves 1-2ms draw time because ReplayPlayerSettings forces itself to be redrawn all the time 🤦‍♂️
 		playerClock.Remove(player.ReplayOverlay, true);
+	}
+
+	private double calcFrameTime()
+	{
+		var currentTime = playerClock.CurrentTime;
+		var frameTime = 1000.0 / fps;
+		foreach (var mod in rateMods)
+			frameTime *= mod.ApplyToRate(currentTime);
+		return frameTime;
 	}
 
 	public void StartRecording(ScreenStack target)
@@ -206,8 +219,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		ffmpeg = null;
 		currentlyCapturing = false;
 
-		// this.CaptureScreenStack = stack;
-		originalStackClock = target.Clock;
+		originalStackClock = (ThrottledFrameClock)target.Clock;
 		ScreenStackTimeSource.CurrentTime = target.Clock.CurrentTime; // this is the bug killer...
 		target.Clock = new MyClock(ScreenStackTimeSource);
 
@@ -283,7 +295,18 @@ public partial class ReplayEncoder : CompositeDrawable
 		Recording = false;
 		player = null;
 		replayTimeStarted = false;
-		screenshotter.Target.Clock = originalStackClock;
+
+		// This fixes the "slow motion" you see when going back to song select after recording ends.
+		// The ThrottledFrameClock sitting in memory was still counting... which caused it's
+		// accumulated sleep time/error to rise way too high... and we used to just shove it back into the ScreenStack,
+		// causing the entire scene graph to have throttled updates...
+		// The solution? Throw it out and make a new one.
+		var tfc = AccessTools.CreateInstance<ThrottledFrameClock>();
+		tfc.MaximumUpdateHz = originalStackClock.MaximumUpdateHz;
+		tfc.Throttling = originalStackClock.Throttling;
+		originalStackClock = null;
+		screenshotter.Target.Clock = tfc;
+
 		RemoveInternal(screenshotter, true);
 		ffmpeg?.Dispose();
 		ffmpeg = null;
@@ -332,14 +355,11 @@ public partial class ReplayEncoder : CompositeDrawable
 		if (!Recording || currentlyCapturing)
 			return;
 
-		// TODO: ffmpeg can be inited here using ScheduleAfterChildren()
-
-		// It literally doesn't make sense for the screenshotter or its target's clock to be null at this point.
-		Debug.Assert(screenshotter?.Target.Clock != null);
-
 		if (actionWhenSimulatedTimeReached != null && ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
 			actionWhenSimulatedTimeReached();
-		ScreenStackTimeSource.CurrentTime += frame_time_ms;
+
+		// The UI should always be advanced at the video framerate.
+		ScreenStackTimeSource.CurrentTime += 1000.0 / fps;
 
 		// The player was started at the end of OnImageReceived(),
 		// giving BASS a lot of time to render audio, so we can record
@@ -359,7 +379,7 @@ public partial class ReplayEncoder : CompositeDrawable
 				// We keep the clock stopped as to not take unpredictable images of the screen.
 
 				// Increment now before we forget.
-				replayTime += frame_time_ms;
+				replayTime += calcFrameTime();
 			}
 		});
 

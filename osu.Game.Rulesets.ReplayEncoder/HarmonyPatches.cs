@@ -173,3 +173,15 @@ static class AudioThread_freeWasapi_Patch
 	// Completely disable it so the game doesn't crash itself.
 	static bool Prefix(AudioThread __instance) => false;
 }
+
+[HarmonyPatch(typeof(Player), "CreateGameplayClockContainer")]
+[HarmonyPatchCategory("StartupPatches")]
+static class Player_CreateGameplayClockContainer_Patch
+{
+	static bool Prefix(ref GameplayClockContainer __result, WorkingBeatmap beatmap, double gameplayStart)
+	{
+		__result = new MasterGameplayClockContainer(beatmap, gameplayStart);
+		AccessTools.Property(typeof(MasterGameplayClockContainer), "ShouldValidatePlaybackRate").SetValue(__result, true);
+		return false;
+	}
+}
