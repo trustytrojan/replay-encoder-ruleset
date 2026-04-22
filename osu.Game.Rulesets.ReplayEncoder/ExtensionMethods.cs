@@ -4,7 +4,6 @@ using ManagedBass;
 using osu.Framework.Audio;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Bindables;
-using osu.Framework.Threading;
 using osu.Game.Beatmaps;
 using osu.Game.IO;
 using osu.Game.Overlays;

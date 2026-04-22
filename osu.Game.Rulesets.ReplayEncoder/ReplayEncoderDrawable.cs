@@ -99,6 +99,7 @@ public partial class ReplayEncoder : CompositeDrawable
 	[Resolved]
 	public FrameworkConfigManager FrameworkConfig { get; private set; }
 
+	// TODO: use this to play music after returning to SoloSongSelect after SoloResultsScreen
 	[Resolved]
 	public MusicController Music { get; private set; }
 
@@ -193,7 +194,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		playerClock.Remove(player.ReplayOverlay, true);
 	}
 
-	private double calcFrameTime()
+	private double CalcFrameTime()
 	{
 		var currentTime = playerClock.CurrentTime;
 		var frameTime = 1000.0 / fps;
@@ -220,7 +221,8 @@ public partial class ReplayEncoder : CompositeDrawable
 		currentlyCapturing = false;
 
 		originalStackClock = (ThrottledFrameClock)target.Clock;
-		ScreenStackTimeSource.CurrentTime = target.Clock.CurrentTime; // this is the bug killer...
+		// This kills the bug where we were waiting on a 0.01 alpha SongSelectMenu to fully suspend.
+		ScreenStackTimeSource.CurrentTime = target.Clock.CurrentTime;
 		target.Clock = new MyClock(ScreenStackTimeSource);
 
 		// Create our own mixer to combine TrackMixer and SampleMixer
@@ -302,6 +304,12 @@ public partial class ReplayEncoder : CompositeDrawable
 		// causing the entire scene graph to have throttled updates...
 		// The solution? Throw it out and make a new one.
 		var tfc = AccessTools.CreateInstance<ThrottledFrameClock>();
+
+		// This should make the right-click context menu of the score you rendered hide.
+		// Before, the inner StopwatchClock was starting at 0, so certain parts of the ScreenStack were "stuck in time".
+		// Another user reported the osu logo being stuck in the center of the screen.
+		(tfc.Source as StopwatchClock).Seek(ScreenStackTimeSource.CurrentTime);
+
 		tfc.MaximumUpdateHz = originalStackClock.MaximumUpdateHz;
 		tfc.Throttling = originalStackClock.Throttling;
 		originalStackClock = null;
@@ -367,7 +375,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		ScheduleAfterChildren(() =>
 		{
 			updateChildrenTime.End();
-			recordAudio();
+			RecordAudio();
 
 			// Don't stop the music if the replay finished.
 			// This keeps it playing when moving to the results screen.
@@ -379,7 +387,7 @@ public partial class ReplayEncoder : CompositeDrawable
 				// We keep the clock stopped as to not take unpredictable images of the screen.
 
 				// Increment now before we forget.
-				replayTime += calcFrameTime();
+				replayTime += CalcFrameTime();
 			}
 		});
 
@@ -389,7 +397,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		updateChildrenTime.Begin();
 	}
 
-	private void recordAudio()
+	private void RecordAudio()
 	{
 		if (ffmpeg == null)
 			return;
