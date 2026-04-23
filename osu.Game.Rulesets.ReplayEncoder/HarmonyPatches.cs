@@ -1,6 +1,7 @@
 using System;
 using HarmonyLib;
 using osu.Framework.Graphics.Rendering;
+using osu.Framework.Logging;
 using osu.Framework.Threading;
 using osu.Game.Beatmaps;
 using osu.Game.Screens.Play;
@@ -23,7 +24,7 @@ static class GameplayClockContainer_StartGameplayClock_Patch
 	{
 		if (__instance != lastInstance)
 		{
-			Console.WriteLine("GameplayClockContainer_StartGameplayClock_Patch: new instance");
+			Logger.Log("GameplayClockContainer_StartGameplayClock_Patch: new instance");
 			lastUnderlyingClock = __instance.GetGameplayClock();
 			lastInstance = __instance;
 		}
@@ -45,7 +46,7 @@ static class GameplayClockContainer_StopGameplayClock_Patch
 	{
 		if (__instance != lastInstance)
 		{
-			Console.WriteLine("GameplayClockContainer_StopGameplayClock_Patch: new instance");
+			Logger.Log("GameplayClockContainer_StopGameplayClock_Patch: new instance");
 			lastUnderlyingClock = __instance.GetGameplayClock();
 			lastInstance = __instance;
 		}
@@ -69,7 +70,7 @@ static class GameplayClockContainer_Seek_Patch
 	{
 		if (__instance != lastInstance)
 		{
-			Console.WriteLine("GameplayClockContainer_Seek_Patch: new instance");
+			Logger.Log("GameplayClockContainer_Seek_Patch: new instance");
 			lastUnderlyingClock = __instance.GetGameplayClock();
 			lastInstance = __instance;
 		}
@@ -90,6 +91,16 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 	static bool _isPboInitialized = false;
 	static int _expectedByteSize = 0;
 
+	[System.Diagnostics.StackTraceHidden]
+	private static void CheckGLError(string location)
+	{
+		ErrorCode error = GL.GetError();
+		if (error != ErrorCode.NoError)
+		{
+			throw new Exception($"OpenGL Error at {location}: {error}");
+		}
+	}
+
 	static bool Prefix(ref Image<Rgba32> __result, IFrameBuffer frameBuffer)
 	{
 		int width = frameBuffer.Texture.Width;
@@ -99,7 +110,7 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 		// 1. Initialize PBOs if not already done or if resolution changed
 		if (!_isPboInitialized || _expectedByteSize != byteSize)
 		{
-			Console.WriteLine("GLRenderer_ExtractFrameBufferData_Patch: initializing PBOs");
+			Logger.Log($"{nameof(GLRenderer_ExtractFrameBufferData_Patch)}: initializing PBOs");
 			InitializePbos(byteSize);
 		}
 
@@ -118,7 +129,12 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 		// 3. Map the PREVIOUS frame's PBO (readIdx) to CPU memory
 		GL.BindBuffer(BufferTarget.PixelPackBuffer, _pbos[readIdx]);
 
-		IntPtr ptr = GL.Oes.MapBuffer(BufferTargetArb.PixelPackBuffer, BufferAccessArb.ReadOnly);
+		// The choice between these MapBuffer & MapBufferRange is important... only on Windows. Go figure.
+		// The specifics on my laptop are that MapBuffer fails on Intel and MapBufferRange fails on NVIDIA.
+		// Since I know MapBuffer works more often (across OSes AND GPUs) than MapBufferRange, they will be error-chained like this.
+		IntPtr ptr;
+		if ((ptr = GL.Oes.MapBuffer(BufferTargetArb.PixelPackBuffer, BufferAccessArb.ReadOnly)) == 0)
+			ptr = GL.MapBufferRange(BufferTarget.PixelPackBuffer, IntPtr.Zero, (IntPtr)byteSize, BufferAccessMask.MapReadBit | BufferAccessMask.MapPersistentBit);
 
 		Image<Rgba32> image = null!;
 		if (ptr != IntPtr.Zero)
@@ -131,6 +147,8 @@ public static class GLRenderer_ExtractFrameBufferData_Patch
 			}
 			GL.UnmapBuffer(BufferTarget.PixelPackBuffer);
 		}
+		else
+			CheckGLError("MapBuffer/MapBufferRange");
 
 		GL.BindBuffer(BufferTarget.PixelPackBuffer, 0);
 		frameBuffer.Unbind();

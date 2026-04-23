@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using HarmonyLib;
 using osu.Framework.Graphics.Containers;
@@ -60,7 +59,7 @@ static class ReplayPlayerLoader_OnEntering_Patch
 {
 	static void Postfix(ReplayPlayerLoader __instance)
 	{
-		Console.WriteLine($"ReplayPlayerLoader_OnEntering_Patch: caught ReplayPlayerLoader#{__instance.GetHashCode()}");
+		Logger.Log($"ReplayPlayerLoader_OnEntering_Patch: caught ReplayPlayerLoader#{__instance.GetHashCode()}");
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("RecordingTrigger");
 		ReplayEncoderRuleset.ReplayEncoder.ReceiveReplayPlayerLoader(__instance);
 	}
@@ -75,7 +74,10 @@ static class PlayerLoader_OnSuspending_Patch
 	static void Postfix(PlayerLoader __instance, ScreenTransitionEvent e)
 	{
 		if (__instance is ReplayPlayerLoader && e.Next is not ReplayPlayer)
+		{
+			Logger.Log($"PlayerLoader_OnSuspending_Patch: caught {__instance}#{__instance.GetHashCode()} transitioning to {e.Next}#{e.Next.GetHashCode()} which is not a ReplayPlayer. Stopping recording.");
 			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+		}
 	}
 }
 
@@ -86,7 +88,10 @@ static class PlayerLoader_OnExiting_Patch
 	static void Prefix(PlayerLoader __instance, ScreenExitEvent e)
 	{
 		if (__instance is ReplayPlayerLoader && e.Destination is not ReplayPlayer)
+		{
+			Logger.Log($"PlayerLoader_OnExiting_Patch: caught {__instance}#{__instance.GetHashCode()} exiting to {e.Destination}#{e.Destination.GetHashCode()} which is not a ReplayPlayer. Stopping recording.");
 			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+		}
 	}
 }
 
@@ -97,7 +102,13 @@ static class ReplayPlayer_OnSuspending_Patch
 	static void Prefix(ReplayPlayer __instance, ScreenTransitionEvent e)
 	{
 		if (!__instance.HasCompleted() || e.Next is not ResultsScreen)
+		{
+			if (!__instance.HasCompleted())
+				Logger.Log($"ReplayPlayer_OnSuspending_Patch: caught incomplete {__instance}#{__instance.GetHashCode()} suspending. Stopping recording.");
+			else if (e.Next is not ResultsScreen)
+				Logger.Log($"ReplayPlayer_OnSuspending_Patch: caught {__instance}#{__instance.GetHashCode()} transitioning to {e.Next}#{e.Next.GetHashCode()} which is not a ResultsScreen. Stopping recording.");
 			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+		}
 	}
 }
 
@@ -108,7 +119,13 @@ static class ReplayPlayer_OnExiting_Patch
 	static void Prefix(ReplayPlayer __instance, ScreenExitEvent e)
 	{
 		if (!__instance.HasCompleted() || e.Destination is not ResultsScreen)
+		{
+			if (!__instance.HasCompleted())
+				Logger.Log($"ReplayPlayer_OnExiting_Patch: caught incomplete {__instance}#{__instance.GetHashCode()} exiting. Stopping recording.");
+			else if (e.Next is not ResultsScreen)
+				Logger.Log($"ReplayPlayer_OnExiting_Patch: caught {__instance}#{__instance.GetHashCode()} exiting to {e.Destination}#{e.Destination.GetHashCode()} which is not a ResultsScreen. Stopping recording.");
 			ReplayEncoderRuleset.ReplayEncoder.StopRecording();
+		}
 	}
 }
 

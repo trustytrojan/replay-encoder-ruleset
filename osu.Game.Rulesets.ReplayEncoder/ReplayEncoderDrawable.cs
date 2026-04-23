@@ -22,6 +22,7 @@ using osu.Game.Overlays.Notifications;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Scoring;
 using osu.Game.Screens.Play;
+using osu.Game.Utils;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -111,24 +112,29 @@ public partial class ReplayEncoder : CompositeDrawable
 		FrameworkConfig.SetValue(FrameworkSetting.ExecutionMode, ExecutionMode.SingleThread);
 	}
 
+	void PostNotification(string text)
+	{
+		Game.PostNotification(new SimpleNotification() { Text = $"Replay Encoder: {text}" });
+	}
+
+	void PostErrorNotification(string text)
+	{
+		Game.PostNotification(new SimpleErrorNotification() { Text = $"Replay Encoder: {text}" });
+	}
+
 	public bool CanRecord()
 	{
-		void postErrorNotification(string text)
-		{
-			Game.PostNotification(new SimpleErrorNotification() { Text = $"Replay Encoder: {text}" });
-		}
-
 		// Programatically changing the UI is just impossible...
 		if (Game.Toolbar.State.Value == Visibility.Visible)
 		{
-			postErrorNotification("Toolbar must be hidden.");
+			PostErrorNotification("Toolbar must be hidden.");
 			return false;
 		}
 
 		// I refuse to deal with this...
 		if (FrameworkConfig.Get<ExecutionMode>(FrameworkSetting.ExecutionMode) == ExecutionMode.MultiThreaded)
 		{
-			postErrorNotification("Threading mode must be single-threaded.");
+			PostErrorNotification("Threading mode must be single-threaded.");
 			return false;
 		}
 
@@ -136,7 +142,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		{
 			if (!FFmpegCliProcess.TestFfmpegArguments("-version"))
 			{
-				postErrorNotification("Running `ffmpeg -version` failed.");
+				PostErrorNotification("Running `ffmpeg -version` failed.");
 				return false;
 			}
 		}
@@ -144,7 +150,7 @@ public partial class ReplayEncoder : CompositeDrawable
 		{
 			if (ex.NativeErrorCode != 2) // "File not found" on both Windows & Unix
 				throw;
-			postErrorNotification("System couldn't find ffmpeg. Please install it.");
+			PostErrorNotification("System couldn't find ffmpeg. Please install it.");
 			return false;
 		}
 
@@ -287,7 +293,8 @@ public partial class ReplayEncoder : CompositeDrawable
 		};
 		AddInternal(screenshotter);
 
-		Logger.Log("Started rendering replay.", level: LogLevel.Important);
+		Logger.Log("Started rendering replay.");
+		PostNotification("Started rendering replay.");
 	}
 
 	public void StopRecording()
@@ -317,7 +324,6 @@ public partial class ReplayEncoder : CompositeDrawable
 
 		RemoveInternal(screenshotter, true);
 		ffmpeg?.Dispose();
-		ffmpeg = null;
 		score = null;
 
 		FrameworkConfig.SetValue(FrameworkSetting.ExecutionMode, originalExecutionMode);
@@ -353,7 +359,16 @@ public partial class ReplayEncoder : CompositeDrawable
 		}
 
 		ReplayEncoderRuleset.Harmony.UnpatchCategory("WhileRecording");
-		Logger.Log("Stopped rendering replay.", level: LogLevel.Important);
+		Logger.Log("Stopped rendering replay.");
+		PostNotification("Stopped rendering replay.");
+
+		// Post a completed progress notification which presents the video file when clicked.
+		Game.PostNotification(new ProgressNotification
+		{
+			State = ProgressNotificationState.Completed,
+			CompletionText = $"Replay Encoder: Finished rendering: {ffmpeg.OutputFilePath}",
+			CompletionClickAction = () => Game.GetStorage().GetExportStorage().PresentFileExternally(ffmpeg.OutputFilePath)
+		});
 	}
 
 	protected override void Update()
@@ -364,7 +379,10 @@ public partial class ReplayEncoder : CompositeDrawable
 			return;
 
 		if (actionWhenSimulatedTimeReached != null && ScreenStackTimeSource.CurrentTime >= simulatedTimeToInvokeAction)
+		{
 			actionWhenSimulatedTimeReached();
+			actionWhenSimulatedTimeReached = null;
+		}
 
 		// The UI should always be advanced at the video framerate.
 		ScreenStackTimeSource.CurrentTime += 1000.0 / fps;
@@ -399,7 +417,7 @@ public partial class ReplayEncoder : CompositeDrawable
 
 	private void RecordAudio()
 	{
-		if (ffmpeg == null)
+		if (!Recording || ffmpeg == null)
 			return;
 
 		if (audioBuf == null)
@@ -433,14 +451,18 @@ public partial class ReplayEncoder : CompositeDrawable
 		// transforms should have been finished by StartRecording().
 		if (ffmpeg == null)
 		{
-			var exportPath = Game.GetStorage().GetExportStorage().GetFullPath(".");
+			// See LegacyExporter.ExportAsync for the full logic.
+			const string file_extension = ".mp4";
 
-			// Taken from LegacyScoreExporter.GetFilename
-			var filename = $"{score.GetDisplayString()} ({score.Date.LocalDateTime:yyyy-MM-dd_HH-mm}).mp4".GetValidFilename();
+			// See LegacyScoreExporter.GetFilename for the filename format below.
+			var itemFilename = $"{score.GetDisplayString()} ({score.Date.LocalDateTime:yyyy-MM-dd_HH-mm})".GetValidFilename();
+			var exportStorage = Game.GetStorage().GetExportStorage();
+			var existingExports = exportStorage.GetFiles(string.Empty, $"{itemFilename}*{file_extension}").Concat(exportStorage.GetDirectories(""));
+			var filename = NamingUtils.GetNextBestFilename(existingExports, $"{itemFilename}{file_extension}");
 
 			ffmpeg = new FFmpegCliProcess
 			{
-				OutputFilePath = $"{exportPath}/{filename}",
+				OutputFilePath = exportStorage.GetFullPath(filename),
 				VideoSize = new() { X = image.Width, Y = image.Height },
 				Framerate = fps,
 				Samplerate = samplerate,
