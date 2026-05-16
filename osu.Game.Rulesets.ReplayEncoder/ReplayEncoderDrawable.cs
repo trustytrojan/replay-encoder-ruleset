@@ -209,10 +209,16 @@ public partial class ReplayEncoder : CompositeDrawable
 		return frameTime;
 	}
 
+	double oldMaxInactiveHz;
+
 	public void StartRecording(ScreenStack target)
 	{
 		// Disable the log spam of GameplayClockContainer operations
 		ReplayEncoderRuleset.Harmony.PatchCategory("WhileRecording");
+
+		var gameHost = AccessTools.Property(typeof(Framework.Game), "Host").GetValue(Game) as GameHost;
+		oldMaxInactiveHz = gameHost.MaximumInactiveHz;
+		gameHost.MaximumInactiveHz = gameHost.MaximumDrawHz;
 
 		// This allows for a 10-fold speed increase over image.CreateReadOnlyPixelSpan()!
 		// See FFmpegCliProcess.WriteFrame().
@@ -304,6 +310,9 @@ public partial class ReplayEncoder : CompositeDrawable
 		Recording = false;
 		player = null;
 		replayTimeStarted = false;
+
+		var gameHost = AccessTools.Property(typeof(Framework.Game), "Host").GetValue(Game) as GameHost;
+		gameHost.MaximumInactiveHz = oldMaxInactiveHz;
 
 		// This fixes the "slow motion" you see when going back to song select after recording ends.
 		// The ThrottledFrameClock sitting in memory was still counting... which caused it's

@@ -1,4 +1,3 @@
 - hide toolbar automatically
-- make a link notification for getting ffmpeg based on OS
-- use the same "exported replay" notification for when the video file is ready
-- remove the settings overlay from ReplayPlayerLoader, and disable the "Loading paused..." behavior while recording
+- remove the settings overlay from ReplayPlayerLoader
+- disable the "Loading paused..." behavior in ReplayPlayerLoader while recording
